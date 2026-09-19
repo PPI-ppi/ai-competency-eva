@@ -41,18 +41,25 @@ public class EngineService {
     private final StudentPointProfileRepository profiles;
     private final AssessmentEngineLogRepository engineLogs;
     private final ClassQuestionRepository classQuestions;
+    private final AssessmentMessageRepository messages;
+    private final AssessmentDimensionScoreRepository dimensionScores;
+    private final AssessmentPointScoreRepository pointScores;
     private final ObjectMapper mapper;
 
     public EngineService(AssessmentService assessments, QuestionService questions,
                          AssessmentQuestionRepository assessmentQuestions, AssessmentAnswerRepository answers,
                          AssessmentPointStateRepository pointStates, ClassQuestionFreshnessRepository freshnessRepo,
                          StudentPointProfileRepository profiles, AssessmentEngineLogRepository engineLogs,
-                         ClassQuestionRepository classQuestions, ObjectMapper mapper) {
+                         ClassQuestionRepository classQuestions, AssessmentMessageRepository messages,
+                         AssessmentDimensionScoreRepository dimensionScores,
+                         AssessmentPointScoreRepository pointScores, ObjectMapper mapper) {
         this.assessments = assessments; this.questions = questions;
         this.assessmentQuestions = assessmentQuestions; this.answers = answers;
         this.pointStates = pointStates; this.freshnessRepo = freshnessRepo;
         this.profiles = profiles; this.engineLogs = engineLogs;
-        this.classQuestions = classQuestions; this.mapper = mapper;
+        this.classQuestions = classQuestions;
+        this.messages = messages; this.dimensionScores = dimensionScores;
+        this.pointScores = pointScores; this.mapper = mapper;
     }
 
     // ==================== 1. start：初始化 ====================
@@ -430,5 +437,215 @@ public class EngineService {
         l.setAssessmentId(assessmentId); l.setStudentUserId(studentId); l.setClassId(classId);
         l.setEvent(event); l.setAssessmentPoint(point); l.setPayload(payload);
         engineLogs.save(l);
+    }
+
+    // ==================== 4. followup-result：追问结果回传 ====================
+
+    public record FollowupTurn(String ask, String answer) {}
+    public record FollowupOutcome(String pointName, Double thetaNew, Double confidenceNew,
+                                   String pointStatus, boolean finished, NextQuestionResult nextQuestion) {}
+
+    public FollowupOutcome followupResult(Long assessmentId, Long questionId,
+                                           List<FollowupTurn> turns, double rFinal,
+                                           String endReason, String commentFinal) {
+        AssessmentQuestion aq = assessmentQuestions.findByAssessmentIdAndQuestionId(assessmentId, questionId)
+                .orElseThrow(() -> new BusinessException("题目不存在", 404));
+        AssessmentPointState state = pointStates.findByAssessmentIdAndPoint(assessmentId, aq.getPointName())
+                .orElseThrow(() -> new BusinessException("考察点状态不存在"));
+
+        // 把追问问答写入消息表
+        if (turns != null) {
+            int seq = (int) (messages.findByAssessmentIdOrderByCreatedAt(assessmentId).size());
+            for (FollowupTurn t : turns) {
+                seq++;
+                messages.save(new AssessmentMessage(assessmentId, aq.getId(), "agent", t.ask(), seq));
+                seq++;
+                messages.save(new AssessmentMessage(assessmentId, aq.getId(), "student", t.answer(), seq));
+            }
+        }
+
+        // 用 rFinal 重算信号并更新状态
+        double d = aq.getDifficultyValue() != null ? aq.getDifficultyValue() : 0.6;
+        double expectedR = expectedR(state.getTheta(), d);
+        double u = 1 - Math.abs(2 * expectedR - 1) + 0.1;
+        double signal = (rFinal - expectedR) / u;
+        updateState(state, rFinal, expectedR, u, signal, d, aq);
+
+        aq.setFollowedUp(true);
+        aq.setFollowUpTurns(turns != null ? turns.size() : 0);
+        assessmentQuestions.save(aq);
+
+        state.setFollowUpCount(state.getFollowUpCount() + 1);
+        pointStates.save(state);
+
+        log(assessmentId, 0L, 0L, "followup", state.getAssessmentPoint(),
+                "rFinal=" + rFinal + " turns=" + (turns != null ? turns.size() : 0) + " reason=" + endReason);
+
+        // 直接返回下一题（减少一次插件往返）
+        NextQuestionResult next = nextQuestion(assessmentId);
+        return new FollowupOutcome(state.getAssessmentPoint(), state.getTheta(),
+                state.getConfidence(), state.getStatus(), next.finished(), next);
+    }
+
+    // ==================== 5. report-data：收尾取数 ====================
+
+    public record ReportDimension(String name, Double score, Integer questionCount, boolean tested) {}
+    public record ReportPoint(String name, String dimension, Double theta, Double confidence,
+                               String status, Integer questionCount, Double weight, boolean lit) {}
+    public record ReportAnswerRecord(Integer sequenceNo, Long questionId, String type,
+                                      Double difficultyValue, Double rInitial, Double rFinal,
+                                      boolean followedUp, Integer followUpTurns, String comment) {}
+    public record ReportData(Long assessmentId, String status, Double totalScore,
+                              String abilityLevel, List<ReportDimension> dimensions,
+                              List<ReportPoint> points, List<ReportAnswerRecord> answerRecords,
+                              List<String> weakPoints, List<String> strongPoints) {}
+
+    public ReportData reportData(Long assessmentId) {
+        Assessment a = assessments.findById(assessmentId)
+                .orElseThrow(() -> new BusinessException("测评不存在", 404));
+
+        // 幂等：已完成直接返回（不重复聚合）
+        if ("completed".equals(a.getStatus())) {
+            return buildReportData(a, null);
+        }
+
+        List<AssessmentPointState> states = pointStates.findByAssessmentId(assessmentId);
+        if (states.isEmpty()) throw new BusinessException("测评无考察点状态");
+
+        // 聚合总分：totalScore = 100 * Σ(θ*w) / Σw
+        double weightSum = 0, weightedThetaSum = 0;
+        Map<String, List<AssessmentPointState>> byDimension = new HashMap<>();
+        for (AssessmentPointState s : states) {
+            double w = 1.0;
+            weightSum += w;
+            weightedThetaSum += s.getTheta() * w;
+            byDimension.computeIfAbsent(s.getDimension(), k -> new ArrayList<>()).add(s);
+        }
+        double totalScore = weightSum > 0 ? 100.0 * weightedThetaSum / weightSum : 0;
+
+        // 六维分：每维度内考察点 θ 平均
+        List<ReportDimension> dims = new ArrayList<>();
+        for (Map.Entry<String, List<AssessmentPointState>> e : byDimension.entrySet()) {
+            double avg = e.getValue().stream().mapToDouble(AssessmentPointState::getTheta).average().orElse(0);
+            dims.add(new ReportDimension(e.getKey(), 100.0 * avg, e.getValue().size(), true));
+        }
+
+        // 考察点明细 + 技能树点亮判断
+        List<ReportPoint> points = new ArrayList<>();
+        List<String> weakPoints = new ArrayList<>();
+        List<String> strongPoints = new ArrayList<>();
+        for (AssessmentPointState s : states) {
+            boolean lit = "converged".equals(s.getStatus()) && s.getTheta() >= 0.20 + 0.15 * s.getConfidence();
+            points.add(new ReportPoint(s.getAssessmentPoint(), s.getDimension(),
+                    s.getTheta(), s.getConfidence(), s.getStatus(),
+                    s.getQuestionCount(), 1.0, lit));
+            if ("converged".equals(s.getStatus()) && s.getTheta() < 0.4) weakPoints.add(s.getAssessmentPoint());
+            if (lit) strongPoints.add(s.getAssessmentPoint());
+        }
+
+        // 答题记录
+        List<AssessmentQuestion> answered = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId);
+        List<ReportAnswerRecord> records = new ArrayList<>();
+        for (AssessmentQuestion aq : answered) {
+            records.add(new ReportAnswerRecord(aq.getSequenceNo(), aq.getQuestionId(), aq.getType(),
+                    aq.getDifficultyValue(), aq.getRInitial(), aq.getRFinal(),
+                    aq.isFollowedUp(), aq.getFollowUpTurns(), null));
+        }
+
+        // 落库：维度分 + 考察点分
+        for (ReportDimension d : dims) {
+            AssessmentDimensionScore ds = new AssessmentDimensionScore();
+            ds.setAssessmentId(assessmentId); ds.setClassId(a.getClassId());
+            ds.setStudentUserId(a.getStudentUserId());
+            ds.setDimension(d.name()); ds.setScore(d.score()); ds.setQuestionCount(d.questionCount());
+            dimensionScores.save(ds);
+        }
+        for (ReportPoint p : points) {
+            AssessmentPointScore ps = new AssessmentPointScore();
+            ps.setAssessmentId(assessmentId); ps.setClassId(a.getClassId());
+            ps.setStudentUserId(a.getStudentUserId());
+            ps.setDimension(p.dimension()); ps.setAssessmentPoint(p.name());
+            ps.setScore(100.0 * p.theta()); ps.setQuestionCount(p.questionCount());
+            pointScores.save(ps);
+        }
+
+        // 更新画像（30天半衰期）
+        updateProfiles(a, states);
+
+        // 标记测评完成
+        a.setStatus("completed");
+        a.setCompletedAt(java.time.Instant.now());
+        a.setTotalScore(totalScore);
+        a.setAverageScore(totalScore / Math.max(1, dims.size()));
+        a.setAbilityLevel(abilityLevel(totalScore));
+        assessments.save(a);
+
+        log(assessmentId, a.getStudentUserId(), a.getClassId(), "finish", null,
+                "total=" + String.format("%.1f", totalScore));
+
+        return new ReportData(assessmentId, "completed", totalScore, a.getAbilityLevel(),
+                dims, points, records, weakPoints, strongPoints);
+    }
+
+    /** 画像增量更新：先衰减历史，再累加本场。 */
+    private void updateProfiles(Assessment a, List<AssessmentPointState> states) {
+        LocalDate today = LocalDate.now();
+        for (AssessmentPointState s : states) {
+            StudentPointProfile p = profiles.findByKey(a.getClassId(), a.getStudentUserId(), s.getAssessmentPoint())
+                    .orElseGet(() -> {
+                        StudentPointProfile np = new StudentPointProfile();
+                        np.setClassId(a.getClassId()); np.setStudentUserId(a.getStudentUserId());
+                        np.setDimension(s.getDimension()); np.setAssessmentPoint(s.getAssessmentPoint());
+                        return np;
+                    });
+            // 幂等：本场已入账过则跳过
+            if (a.getId().equals(p.getLastAssessmentId())) continue;
+
+            // 衰减旧数据（30天半衰期）
+            if (p.getLastUpdatedAt() != null) {
+                long days = java.time.temporal.ChronoUnit.DAYS.between(p.getLastUpdatedAt(), today);
+                double decay = Math.pow(0.5, days / 30.0);
+                p.setProfileSum(p.getProfileSum() * decay);
+                p.setProfileWeight(p.getProfileWeight() * decay);
+            }
+            // 累加本场
+            p.setProfileSum(p.getProfileSum() + s.getConfidence() * s.getTheta());
+            p.setProfileWeight(p.getProfileWeight() + s.getConfidence());
+            p.setProfileValue(p.getProfileWeight() > 0 ? p.getProfileSum() / p.getProfileWeight() : 0.0);
+            p.setLastUpdatedAt(today);
+            p.setLastAssessmentId(a.getId());
+            profiles.save(p);
+        }
+    }
+
+    private ReportData buildReportData(Assessment a, List<AssessmentPointState> states) {
+        // 已完成时从数据库读聚合数据（简化：直接返回已有分数）
+        return new ReportData(a.getId(), a.getStatus(), a.getTotalScore(), a.getAbilityLevel(),
+                List.of(), List.of(), List.of(), List.of(), List.of());
+    }
+
+    private String abilityLevel(double score) {
+        if (score >= 80) return "L4";
+        if (score >= 60) return "L3";
+        if (score >= 40) return "L2";
+        return "L1";
+    }
+
+    // ==================== 6. report-text：回存报告文字 ====================
+
+    public record ReportTextRequest(Long assessmentId, String overall,
+                                     Map<String, String> dimensions,
+                                     List<Map<String, String>> points,
+                                     List<String> suggestions) {}
+
+    public void saveReportText(ReportTextRequest req) {
+        Assessment a = assessments.findById(req.assessmentId())
+                .orElseThrow(() -> new BusinessException("测评不存在", 404));
+        try {
+            a.setReportJson(mapper.writeValueAsString(req));
+            assessments.save(a);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("报告序列化失败");
+        }
     }
 }

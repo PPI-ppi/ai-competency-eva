@@ -71,6 +71,38 @@ public class AgentEngineController {
                 req.messages(), req.artifactIds()));
     }
 
+    // ---- 追问结果回传 ----
+    public record FollowupResultRequest(Long assessmentId, Long questionId,
+                                         List<Map<String, String>> turns,
+                                         Double rFinal, Integer scoreFinal,
+                                         String endReason, String commentFinal) {}
+
+    @PostMapping("/followup-result")
+    public ApiResponse<EngineService.FollowupOutcome> followupResult(@RequestBody FollowupResultRequest req) {
+        List<EngineService.FollowupTurn> turns = req.turns() == null ? List.of()
+                : req.turns().stream()
+                .map(m -> new EngineService.FollowupTurn(m.get("ask"), m.get("answer")))
+                .toList();
+        double rFinal = req.rFinal() != null ? req.rFinal()
+                : (req.scoreFinal() != null ? req.scoreFinal() / 100.0 : 0.0);
+        return ApiResponse.ok(engine.followupResult(
+                req.assessmentId(), req.questionId(), turns, rFinal,
+                req.endReason(), req.commentFinal()));
+    }
+
+    // ---- 收尾取数 ----
+    @GetMapping("/report-data")
+    public ApiResponse<EngineService.ReportData> reportData(@RequestParam Long assessmentId) {
+        return ApiResponse.ok(engine.reportData(assessmentId));
+    }
+
+    // ---- 回存报告文字 ----
+    @PostMapping("/report-text")
+    public ApiResponse<Map<String, Boolean>> reportText(@RequestBody EngineService.ReportTextRequest req) {
+        engine.saveReportText(req);
+        return ApiResponse.ok(Map.of("saved", true));
+    }
+
     // ==================== 工具 ====================
 
     private Long userId(HttpServletRequest req) {
