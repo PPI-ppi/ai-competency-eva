@@ -90,6 +90,72 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     @Override
+    public ScoreResult scoreSubmission(QuestionContext question, String finalSubmission,
+                                       List<ChatTurn> conversation,
+                                       List<FollowupTurn> followupHistory) {
+        String content = complete("""
+                你是 AI 能力测评阅卷官。严格按题目和评分标准打分，只输出 JSON。
+                JSON：{"score":0,"r":0.0,"clarity":"high","comment":"少于200字的评分依据"}
+                规则：
+                1. 对话题：对话记录里只有学生对 AI 助手说的话（提示词），AI 助手的回复已省略。
+                   你可以据此评估学生的提示词能力（提问是否清晰、是否迭代、是否识别错误），
+                   但不要推测 AI 回了什么，也不要因为提示词长/详细就给高分。
+                   最终成果好不好，只看下面的 Final submission，不看对话过程。
+                2. 实操题：只看 Final submission 本身，不推测过程。
+                3. score 为 0~100 的整数，r=score/100，clarity 为 high 或 low（提交过短/跑题/空洞时 low）。
+                4. 不要输出 JSON 之外的文字。
+                """, """
+                题目：
+                %s
+
+                题型：
+                %s
+
+                评分标准：
+                %s
+
+                最终提交成果：
+                %s
+
+                学生对 AI 助手的提示词（仅评估提问能力，AI 回复已省略）：
+                %s
+
+                追问历史：
+                %s
+                """.formatted(
+                question.content(), question.type(), nullToEmpty(question.rubric()),
+                nullToEmpty(finalSubmission), write(conversation), write(followupHistory)));
+        try {
+            JsonNode json = parseJson(content);
+            int score = clamp(json.path("score").asInt(0), 0, 100);
+            double r = json.hasNonNull("r") ? json.path("r").asDouble(score / 100.0) : score / 100.0;
+            String clarity = json.path("clarity").asText("high");
+            if (!"low".equalsIgnoreCase(clarity)) clarity = "high";
+            return new ScoreResult(score, r, clarity.toLowerCase(), json.path("comment").asText(""));
+        } catch (Exception e) {
+            throw new BusinessException("大模型评分结果解析失败：" + e.getMessage());
+        }
+    }
+
+    @Override
+    public String chat(QuestionContext question, List<ChatTurn> conversation, String userMessage) {
+        return complete("""
+                You are an ordinary general-purpose LLM helping the user complete a task.
+                You are not an evaluator. Do not score the user, judge their ability, ask assessment
+                questions, or produce assessment conclusions. Answer the user's current message naturally.
+                """, """
+                Task:
+                %s
+
+                Conversation:
+                %s
+
+                Current user message:
+                %s
+                """.formatted(question.content(), write(conversation), nullToEmpty(userMessage)));
+    }
+
+    @Override
     public FollowupDecision followup(QuestionContext question, String originalAnswer,
                                      List<FollowupTurn> followupHistory, int followupCount) {
         String content = complete("""

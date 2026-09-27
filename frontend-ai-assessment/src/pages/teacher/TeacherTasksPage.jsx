@@ -18,8 +18,6 @@ const EMPTY_FORM = {
   classId: "",
   title: "",
   description: "",
-  estimatedDuration: 25,
-  questionCount: 1,
   dimensions: [],
   assessmentPoints: [],
 };
@@ -243,8 +241,6 @@ export function TeacherTasksPage({ notify }) {
     try {
       await taskApi.create(form.classId, {
         ...form,
-        estimatedDuration: Number(form.estimatedDuration),
-        questionCount: Number(form.questionCount),
       });
       notify("测评任务发布成功", "success");
       setOpen(false);
@@ -303,21 +299,6 @@ export function TeacherTasksPage({ notify }) {
             />
             <small className="field-hint">学生端任务列表里显示的就是这段话</small>
           </label>
-          <div className="form-grid">
-            <Field
-              label="预计时长"
-              type="number"
-              value={form.estimatedDuration}
-              onChange={(v) => setForm({ ...form, estimatedDuration: v })}
-            />
-            <Field
-              label="题目数量"
-              type="number"
-              required
-              value={form.questionCount}
-              onChange={(v) => setForm({ ...form, questionCount: v })}
-            />
-          </div>
           <div className="field">
             <span>考察范围（不选表示使用班级全部题目）</span>
             <ScopeBody
@@ -365,7 +346,6 @@ export function TeacherTasksPage({ notify }) {
               </div>
               <div className="task-detail">
                 <span>{task.className}</span>
-                <span>{task.questionCount} 道题</span>
               </div>
               <button className="outline" onClick={() => view(task)}>
                 <Eye size={15} />查看结果

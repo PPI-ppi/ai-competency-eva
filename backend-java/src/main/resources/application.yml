@@ -39,7 +39,7 @@ app:
     connect-timeout-ms: ${AGENT_CONNECT_TIMEOUT_MS:3000}
     read-timeout-ms: ${AGENT_READ_TIMEOUT_MS:120000}
   llm:
-    api-url: ${LLM_API_URL:https://tokendance.space/gateway/v1/chat/completions}
+    api-url: ${LLM_API_URL:}
     api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:qwen3-max}
+    model: ${LLM_MODEL:}
     timeout-ms: ${LLM_TIMEOUT_MS:120000}

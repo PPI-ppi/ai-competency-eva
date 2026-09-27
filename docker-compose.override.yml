@@ -1,0 +1,8 @@
+# 本地开发 override：不跑 Python Agent（旧服务），只跑 MySQL + Redis + Java Backend
+services:
+  agent:
+    image: hello-world
+    build: !reset []
+  backend:
+    depends_on:
+      mysql: { condition: service_healthy }

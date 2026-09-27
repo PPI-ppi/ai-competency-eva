@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS questions (
   tags TEXT,
   assessment_points TEXT,
   difficulty INT NOT NULL DEFAULT 1,
-  score INT NOT NULL DEFAULT 0,
+  score INT NOT NULL DEFAULT 100,
   visibility VARCHAR(16) NOT NULL DEFAULT 'private',
   status VARCHAR(16) NOT NULL DEFAULT 'active',
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS classes (
   teacher_user_id BIGINT NOT NULL,
   name VARCHAR(100) NOT NULL,
   description TEXT,
+  point_weights TEXT NULL,
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   INDEX idx_classes_teacher(teacher_user_id)
@@ -279,7 +280,7 @@ PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- 7) 题目分值（N19）：教师建题时填写，用于列表展示与后续按分值加权。
 --    0 表示未设置分值，历史题目不受影响。
 SET @ddl := (SELECT IF(COUNT(*) = 0,
-  'ALTER TABLE questions ADD COLUMN score INT NOT NULL DEFAULT 0',
+  'ALTER TABLE questions ADD COLUMN score INT NOT NULL DEFAULT 100',
   'DO 0')
   FROM information_schema.columns
   WHERE table_schema = DATABASE() AND table_name = 'questions' AND column_name = 'score');

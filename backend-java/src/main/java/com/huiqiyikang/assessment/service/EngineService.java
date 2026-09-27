@@ -26,12 +26,18 @@ public class EngineService {
     // ---- 算法常量（对齐文档 4.9 参数表） ----
     private static final double THETA_INIT = 0.0;
     private static final double CONFIDENCE_INIT = 0.0;
-    private static final double ETA = 0.25;            // 学习率
-    private static final double CONVERGE_THRESHOLD = 0.75;
+    private static final double ETA = 0.83;            // 学习率
+    private static final double CONVERGE_THRESHOLD = 0.60; // 收敛阈值
+    private static final double C_GROWTH = 0.5;       // 置信度增长系数
     private static final double C_MAX = 0.95;
     private static final double EPSILON = 0.01;       // 随机扰动
     private static final double FOLLOWUP_SIGNAL = 1.5; // |s|>=1.5 触发追问
     private static final int MAX_QUESTIONS = 30;       // 单场题量硬上限
+
+    // 六维固定顺序（雷达图/报告都按此输出，未测维度也给占位值）
+    private static final List<String> DIMENSION_ORDER = List.of(
+            "AI基础认知", "提示词工程", "AI工具使用",
+            "AI结果评估与优化", "人机协同解决问题", "AI伦理与合规");
 
     private final AssessmentService assessments;
     private final QuestionService questions;
@@ -42,6 +48,7 @@ public class EngineService {
     private final StudentPointProfileRepository profiles;
     private final AssessmentEngineLogRepository engineLogs;
     private final ClassQuestionRepository classQuestions;
+    private final ClassRoomRepository classRoomRepository;
     private final AssessmentMessageRepository messages;
     private final AssessmentDimensionScoreRepository dimensionScores;
     private final AssessmentPointScoreRepository pointScores;
@@ -51,7 +58,8 @@ public class EngineService {
                          AssessmentQuestionRepository assessmentQuestions, AssessmentAnswerRepository answers,
                          AssessmentPointStateRepository pointStates, ClassQuestionFreshnessRepository freshnessRepo,
                          StudentPointProfileRepository profiles, AssessmentEngineLogRepository engineLogs,
-                         ClassQuestionRepository classQuestions, AssessmentMessageRepository messages,
+                         ClassQuestionRepository classQuestions, ClassRoomRepository classRoomRepository,
+                         AssessmentMessageRepository messages,
                          AssessmentDimensionScoreRepository dimensionScores,
                          AssessmentPointScoreRepository pointScores, ObjectMapper mapper) {
         this.assessments = assessments; this.questions = questions;
@@ -59,6 +67,7 @@ public class EngineService {
         this.pointStates = pointStates; this.freshnessRepo = freshnessRepo;
         this.profiles = profiles; this.engineLogs = engineLogs;
         this.classQuestions = classQuestions;
+        this.classRoomRepository = classRoomRepository;
         this.messages = messages; this.dimensionScores = dimensionScores;
         this.pointScores = pointScores; this.mapper = mapper;
     }
@@ -163,15 +172,17 @@ public class EngineService {
 
     /**
      * 解析本场考察点与权重：
-     * 任务型从 task 的 assessment_points / point_weights 读；自主练习等权 1.0。
+     * 任务型从 task 的 assessment_points 读考察点列表；权重从班级（class）读，不从任务读。
+     * 自主练习等权 1.0。
      */
     private List<PointWeight> resolvePoints(Long taskId, Assessment a,
                                             List<String> dimNames, List<String> pointNames) {
-        // 任务型：从任务继承
+        // 任务型：从任务继承考察点列表
         if (taskId != null) {
             AssessmentTask task = assessments.findTask(taskId);
             List<String> points = parseJsonList(task.getAssessmentPoints());
-            Map<String, Double> weights = parseWeights(task.getPointWeights());
+            // 权重从班级读（创建班级时教师设定，0-10整数）
+            Map<String, Double> weights = loadClassWeights(a.getClassId());
             List<PointWeight> result = new ArrayList<>();
             for (String p : points) {
                 result.add(new PointWeight(p, guessDimension(p),
@@ -187,10 +198,33 @@ public class EngineService {
             }
         }
         if (result.isEmpty()) {
-            // 兜底：取班级题库里出现过的所有考察点
+            // 兜底：取班级里权重最高的考察点
             result.add(new PointWeight("提示词书写", "提示词工程", 1.0));
         }
         return result;
+    }
+
+    /** 从班级表读取考察点权重（JSON map: 考察点名→0-10整数），转成 Double。 */
+    @SuppressWarnings("unchecked")
+    private Map<String, Double> loadClassWeights(Long classId) {
+        if (classId == null) return Map.of();
+        try {
+            ClassRoom cr = classRoomRepository.findById(classId).orElse(null);
+            if (cr == null || cr.getPointWeights() == null || cr.getPointWeights().isBlank()) {
+                return Map.of();
+            }
+            Map<String, Object> raw = mapper.readValue(cr.getPointWeights(), Map.class);
+            Map<String, Double> weights = new HashMap<>();
+            for (Map.Entry<String, Object> e : raw.entrySet()) {
+                if (e.getValue() instanceof Number n) {
+                    double w = n.doubleValue();
+                    if (w > 0) weights.put(e.getKey(), w);
+                }
+            }
+            return weights;
+        } catch (Exception e) {
+            return Map.of();
+        }
     }
 
     // ==================== 2. next-question：三级选题 ====================
@@ -221,13 +255,10 @@ public class EngineService {
             return finishResult(assessmentId, "all_converged");
         }
 
-        // 题量上限
+        // 题量上限（30题硬上限）；教师不再设定题数，终止只看收敛或此上限。
         int answeredCount = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId).size();
         if (answeredCount >= MAX_QUESTIONS) {
             return finishResult(assessmentId, "max_questions");
-        }
-        if (a.getQuestionCount() != null && a.getQuestionCount() > 0 && answeredCount >= a.getQuestionCount()) {
-            return finishResult(assessmentId, "question_limit");
         }
 
         // 2.3~2.5 选点→选难度→选题。某考察点在所有难度档均无题可出时，
@@ -358,7 +389,7 @@ public class EngineService {
         double thetaNew = clamp(thetaOld + ETA * signal * m, 0, 1);
         double consistency = Math.max(0.2, 1 - Math.abs(signal) / 3.0);
         double cOld = state.getConfidence();
-        double cNew = Math.min(C_MAX, cOld + 0.5 * (1 - cOld) * consistency);
+        double cNew = Math.min(C_MAX, cOld + C_GROWTH * (1 - cOld) * consistency);
 
         // 计数权重：客观题 0.5，实操/对话 1.0
         double weight = ("SINGLE_CHOICE".equalsIgnoreCase(aq.getType()) || "TRUE_FALSE".equalsIgnoreCase(aq.getType())) ? 0.5 : 1.0;
@@ -470,11 +501,30 @@ public class EngineService {
     }
 
     private Question pickQuestion(Long classId, String pointName, int difficultyLevel, Set<Long> excludeIds) {
-        // 简化：从公开题库里找匹配考察点+难度、未做过的题
-        List<Question> pool = questions.publicList();
+        // 优先从班级题库（class_questions）选题；班级未配题或没匹配时 fallback 到公开题库。
+        List<Question> pool = new ArrayList<>();
+        if (classId != null) {
+            List<ClassQuestion> cqs = classQuestions.findByClassIdAndStatus(classId, "active");
+            if (!cqs.isEmpty()) {
+                Set<Long> qids = new HashSet<>();
+                for (ClassQuestion cq : cqs) qids.add(cq.getQuestionId());
+                pool.addAll(questions.findAllById(qids));
+            }
+        }
+        if (pool.isEmpty()) {
+            pool = questions.publicList();
+        }
+        // 第一遍：匹配目标难度档 + 考察点
         for (Question q : pool) {
             if (excludeIds.contains(q.getId())) continue;
             if (q.getDifficulty() == null || q.getDifficulty() != difficultyLevel) continue;
+            String points = q.getAssessmentPoints();
+            if (points == null || !points.contains(pointName)) continue;
+            return q;
+        }
+        // 第二遍：目标难度档没匹配，放宽难度只匹配考察点（就近扩散）
+        for (Question q : pool) {
+            if (excludeIds.contains(q.getId())) continue;
             String points = q.getAssessmentPoints();
             if (points == null || !points.contains(pointName)) continue;
             return q;
@@ -526,13 +576,41 @@ public class EngineService {
         catch (Exception e) { return Map.of(); }
     }
 
+    // 考察点 → 维度 受控映射（对齐《具体考察点》六维表，逐字一致）
+    private static final Map<String, String> POINT_TO_DIMENSION = new HashMap<>();
+    static {
+        // AI基础认知（7）
+        POINT_TO_DIMENSION.put("AI基本概念理解", "AI基础认知");
+        POINT_TO_DIMENSION.put("数据影响AI输出的认知", "AI基础认知");
+        POINT_TO_DIMENSION.put("AI决策的基本逻辑", "AI基础认知");
+        POINT_TO_DIMENSION.put("AI发展历程认知", "AI基础认知");
+        POINT_TO_DIMENSION.put("AI能力边界认知", "AI基础认知");
+        POINT_TO_DIMENSION.put("AI社会影响认知", "AI基础认知");
+        POINT_TO_DIMENSION.put("批判性看待AI", "AI基础认知");
+        // 提示词工程（1）
+        POINT_TO_DIMENSION.put("提示词书写", "提示词工程");
+        // AI工具使用（4，第三层场景不算考察点）
+        POINT_TO_DIMENSION.put("工具选型及局限性认知", "AI工具使用");
+        POINT_TO_DIMENSION.put("工具使用能力", "AI工具使用");
+        POINT_TO_DIMENSION.put("工作流整合", "AI工具使用");
+        POINT_TO_DIMENSION.put("智能体编排", "AI工具使用");
+        // AI结果评估与优化（2）
+        POINT_TO_DIMENSION.put("评估AI结果", "AI结果评估与优化");
+        POINT_TO_DIMENSION.put("优化AI结果", "AI结果评估与优化");
+        // 人机协同解决问题（1）
+        POINT_TO_DIMENSION.put("与AI协作解决问题", "人机协同解决问题");
+        // AI伦理与合规（5）
+        POINT_TO_DIMENSION.put("隐私保护意识", "AI伦理与合规");
+        POINT_TO_DIMENSION.put("合规意识", "AI伦理与合规");
+        POINT_TO_DIMENSION.put("偏见及有害内容识别", "AI伦理与合规");
+        POINT_TO_DIMENSION.put("版权与知识产权认知", "AI伦理与合规");
+        POINT_TO_DIMENSION.put("问责意识", "AI伦理与合规");
+    }
+
     private String guessDimension(String point) {
-        // 第一版简化：按关键词猜维度，后续建考察点-维度映射表
-        if (point.contains("提示词")) return "提示词工程";
-        if (point.contains("AI工具") || point.contains("工具")) return "AI工具使用";
-        if (point.contains("评估") || point.contains("结果")) return "AI结果评估与优化";
-        if (point.contains("伦理") || point.contains("合规")) return "AI伦理与合规";
-        if (point.contains("协同") || point.contains("问题")) return "人机协同解决问题";
+        String dim = POINT_TO_DIMENSION.get(point);
+        if (dim != null) return dim;
+        // 理论上不会走到：本场考察点都来自受控词表。未登记的点归到基础认知兜底。
         return "AI基础认知";
     }
 
@@ -714,14 +792,19 @@ public class EngineService {
         }
         Double totalScore = wSum > 0 ? clamp(100.0 * thetaSum / wSum, 0.0, 100.0) : null;
 
-        // 六维分：维度内已测考察点 θ 平均 ×100；整维未测不列出（前端按"未考察"置灰）
+        // 六维分：固定六维都输出。已测维度=维度内已测点 θ 平均×100；未测维度给 0 占位，雷达图不空。
         List<ReportDimension> dims = new ArrayList<>();
-        for (Map.Entry<String, List<Double>> e : dimThetas.entrySet()) {
-            double avgTheta = e.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        for (String dimName : DIMENSION_ORDER) {
+            List<Double> dimThetaList = dimThetas.get(dimName);
             int qc = states.stream()
-                    .filter(s -> e.getKey().equals(s.getDimension()) && s.getAnswerCount() != null && s.getAnswerCount() > 0)
+                    .filter(s -> dimName.equals(s.getDimension()) && s.getAnswerCount() != null && s.getAnswerCount() > 0)
                     .mapToInt(AssessmentPointState::getQuestionCount).sum();
-            dims.add(new ReportDimension(e.getKey(), clamp(100.0 * avgTheta, 0.0, 100.0), qc, true));
+            if (dimThetaList == null || dimThetaList.isEmpty()) {
+                dims.add(new ReportDimension(dimName, 0.0, 0, false));
+            } else {
+                double avgTheta = dimThetaList.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+                dims.add(new ReportDimension(dimName, clamp(100.0 * avgTheta, 0.0, 100.0), qc, true));
+            }
         }
 
         // 答题记录

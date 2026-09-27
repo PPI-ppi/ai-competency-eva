@@ -72,7 +72,6 @@ export function TeacherQuestionsPage({ notify }) {
       answer: question.answer || "",
       rubric: question.rubric || "",
       difficulty: question.difficulty ?? 1,
-      score: question.score ?? 0,
       dimensions: questionDimensions(question),
       assessmentPoints: questionAssessmentPoints(question),
     });
@@ -90,7 +89,7 @@ export function TeacherQuestionsPage({ notify }) {
     if (!form.dimensions.length) return notify("请至少选择一个维度", "error");
     if (!form.assessmentPoints.length) return notify("请至少选择一个考察点", "error");
     const payload = { ...form, tags: form.dimensions, difficulty: Number(form.difficulty) };
-    payload.score = Number(form.score) || 0;
+    delete payload.score;
     try {
       if (editing) {
         await questionApi.update(editing.id, payload);
@@ -184,7 +183,7 @@ export function TeacherQuestionsPage({ notify }) {
                     <td title={q.title}>{q.title}</td>
                     <td title={dimension}>{dimension}</td>
                     <td>{q.type}</td>
-                    <td>{q.score ?? 0} 分</td>
+                    <td>100 分</td>
                     <td>
                       <button
                         className="outline"
@@ -234,7 +233,7 @@ export function TeacherQuestionsPage({ notify }) {
                     </td>
                     <td title={dimension}>{dimension}</td>
                     <td>{q.type}</td>
-                    <td>{q.score ?? 0} 分</td>
+                    <td>100 分</td>
                     <td>
                       {q.status === "offline" ? "已下线" : q.visibility === "public" ? "公开" : "私有"}
                     </td>

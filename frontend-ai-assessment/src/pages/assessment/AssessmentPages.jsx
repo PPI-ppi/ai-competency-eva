@@ -16,7 +16,14 @@ export function AssessmentPage({ go, notify }) {
   const [items, setItems] = useState([]);
   const [question, setQuestion] = useState(null);
   const [text, setText] = useState("");
+  const [followupText, setFollowupText] = useState("");
+  const [attachFile, setAttachFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [finalText, setFinalText] = useState("");
   const [sending, setSending] = useState(false);
+  // 对话题/实操题提交后，收起右侧工作面板、只留考官栏，确保考官追问看得见；下一题推过来时自动展开。
+  const [workspaceVisible, setWorkspaceVisible] = useState(true);
+  const [llmItems, setLlmItems] = useState([]);
 
   const pushQuestion = useCallback((next) => setItems((previous) => [...previous, { kind: "question", id: `q-${next.id}`, text: next.content, answered: false }]), []);
 
@@ -28,6 +35,7 @@ export function AssessmentPage({ go, notify }) {
       setItems((previous) => previous.map((item) => item.id === aiId ? { ...item, text: `${item.text}${payload.text || ""}` } : item));
     } else if (name === "question") {
       setQuestion(payload);
+      setWorkspaceVisible(true);
       pushQuestion(payload);
     } else if (name === "answered") {
       setItems((previous) => previous.map((item) => item.id === `q-${payload.questionId}` ? { ...item, answered: true } : item));
@@ -63,9 +71,17 @@ export function AssessmentPage({ go, notify }) {
           : {
               kind: "message",
               id: `m-${message.id}`,
-              from: message.senderType === "ai" ? "ai" : "student",
+              from: message.senderType === "llm"
+                ? "llm"
+                : message.senderType === "ai" ? "ai" : "student",
               text: message.content,
             }));
+        setLlmItems((data.messages || []).filter((m) => !m.questionPrompt && (m.senderType === "llm" || m.senderType === "student")).map((message) => ({
+          kind: "message",
+          id: `m-${message.id}`,
+          from: message.senderType === "llm" ? "llm" : "student",
+          text: message.content,
+        })));
         setQuestion(data.question || null);
         setPlanned(Number(data.assessment?.questionCount) || 0);
         // 还没有当前题目：让后端通过对话流给出第一道，或者直接收尾。
@@ -96,18 +112,26 @@ export function AssessmentPage({ go, notify }) {
     const stamp = Date.now();
     const studentId = `student-${stamp}`;
     const aiId = `ai-${stamp}`;
+    const isOrdinaryChat = question?.type === "DIALOGUE";
     setText("");
     setSending(true);
-    setItems((previous) => [...previous,
-      { kind: "message", id: studentId, from: "student", text: value },
-      { kind: "message", id: aiId, from: "ai", text: "" },
-    ]);
+    if (isOrdinaryChat) {
+      setLlmItems((prev) => [...prev,
+        { kind: "message", id: studentId, from: "student", text: value },
+        { kind: "message", id: aiId, from: "llm", text: "" },
+      ]);
+    } else {
+      setItems((previous) => [...previous,
+        { kind: "message", id: studentId, from: "student", text: value },
+        { kind: "message", id: aiId, from: "ai", text: "" },
+      ]);
+    }
     let finished = false;
     try {
       await assessmentApi.chat(assessment.id, value, (name, payload) => {
         if (name === "finished") finished = true;
         else handleEvent(aiId)(name, payload);
-      });
+      }, question?.type === "DIALOGUE" ? { action: "chat" } : {});
       // 这一轮没有说话内容（例如这道题已经答完）就别留空气泡
       setItems((previous) => previous.filter((item) => !(item.id === aiId && !item.text)));
       if (finished) {
@@ -123,6 +147,99 @@ export function AssessmentPage({ go, notify }) {
     }
   };
 
+  const submitFinal = async () => {
+    if (!finalText.trim() || sending || !question) return;
+        let value = finalText.trim();
+    if (attachFile) value = "[附件: " + attachFile.name + " " + attachFile.url + "]\n" + value;
+    const evaluatorId = `evaluator-${Date.now()}`;
+    setFinalText("");
+    setSending(true);
+    setItems((previous) => [...previous, { kind: "message", id: evaluatorId, from: "ai", text: "" }]);
+    let finished = false;
+    try {
+      await assessmentApi.chat(assessment.id, value, (name, payload) => {
+        if (name === "finished") finished = true;
+        else handleEvent(evaluatorId)(name, payload);
+      }, { action: "submit", finalSubmission: value });
+      // 实操题提交后收起右侧面板，切回考官栏；对话题保留右侧作答对话框，追问时可继续用。
+      if (!isDialogue) {
+        setWorkspaceVisible(false);
+      }
+      if (finished) {
+        notify?.("本次测评已完成，正在打开结果", "success");
+        go("result");
+      }
+    } catch (error) {
+      setFinalText(value);
+      setItems((previous) => previous.filter((item) => item.id !== evaluatorId));
+      notify(error, "error");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendFollowup = async () => {
+    if (!followupText.trim() || sending || !question) return;
+    const value = followupText.trim();
+    const stamp = Date.now();
+    const studentId = `student-followup-${stamp}`;
+    const aiId = `ai-followup-${stamp}`;
+    setFollowupText("");
+    setSending(true);
+    setItems((previous) => [...previous,
+      { kind: "message", id: studentId, from: "student", text: value },
+      { kind: "message", id: aiId, from: "ai", text: "" },
+    ]);
+    let finished = false;
+    try {
+      await assessmentApi.chat(assessment.id, value, (name, payload) => {
+        if (name === "finished") finished = true;
+        else handleEvent(aiId)(name, payload);
+      });
+      setItems((previous) => previous.filter((item) => !(item.id === aiId && !item.text)));
+      if (finished) {
+        notify?.("本次测评已完成，正在打开结果", "success");
+        go("result");
+      }
+    } catch (error) {
+      setFollowupText(value);
+      setItems((previous) => previous.filter((item) => item.id !== studentId && item.id !== aiId));
+      notify(error, "error");
+    } finally {
+      setSending(false);
+    }
+  };
+  const uploadFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !question || !assessment) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("assessmentId", assessment.id);
+      formData.append("assessmentQuestionId", question.id);
+      const ext = file.name.split(".").pop().toLowerCase();
+      formData.append("artifactType", ["png","jpg","jpeg","gif","webp"].includes(ext) ? "image" : "doc");
+      const res = await fetch("/api/agent/files", {
+        method: "POST",
+        headers: { "X-User-Id": "9" },
+        body: formData,
+      });
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); } catch(e) { data = { code: -1, message: "服务器返回: " + raw.substring(0,200) }; }
+      if (res.ok && data.code === 0) {
+        setAttachFile({ name: file.name, url: data.data.fileUrl });
+        notify("文件上传成功", "success");
+      } else {
+        notify(data.message || ("上传失败 HTTP " + res.status), "error");
+      }
+    } catch (err) {
+      notify("上传失败: " + err.message, "error");
+    } finally {
+      setUploading(false);
+    }
+  };
   // 中途退出不结束测评：记录保持 in_progress，之后从「测评任务」或「测评记录」点「继续测评」回来。
   // 只有把题目答完（或达到任务题量）由 Agent 自动收尾，才会真正置为已完成。
   const leaveAssessment = () => {
@@ -131,6 +248,26 @@ export function AssessmentPage({ go, notify }) {
   };
 
   const currentOptions = optionsOf(question);
+  const isDialogue = question?.type === "DIALOGUE";
+  const isPractical = question?.type === "PRACTICAL";
+  const currentQuestionText = question?.content
+    || items.find((item) => item.kind === "question" && !item.answered)?.text
+    || "";
+  const evaluatorItems = items.filter((item) => item.kind === "question" || item.from === "ai");
+  
+  const renderMessage = (item) => (
+    <div className={`message ${item.kind === "question" ? `ai question-prompt${item.answered ? " question-answered" : ""}` : item.from}`} key={item.id}>
+      <div className="bubble">
+        {item.text || (sending && (item.from === "ai" || item.from === "llm") ? "����˼����" : "")}
+      </div>
+      <small>
+        {item.kind === "question"
+          ? (item.answered ? "AI ������ �� �����Ѵ���" : "AI ������ �� ��Ŀ")
+          : item.from === "llm" ? "DeepSeek"
+            : item.from === "ai" ? "AI ������" : "��"}
+      </small>
+    </div>
+  );
   // 进度条：已出题数 ÷ 本次题量。不限题量（planned = 0）时只显示已出题数。
   const askedCount = items.filter((item) => item.kind === "question").length;
   const progressPercent = planned > 0 ? Math.min(100, Math.round((askedCount / planned) * 100)) : 0;
@@ -150,11 +287,140 @@ export function AssessmentPage({ go, notify }) {
         </div>
         <div className="time-left"><Clock3 size={16} /> DeepSeek Agent<button className="text-btn" onClick={leaveAssessment}>退出，稍后继续</button></div>
       </div>
+      {isPractical && question?.type === "__legacy__" && (
+        <section className="practical-question">
+          <span className="eyebrow">PRACTICAL TASK</span>
+          <h2>{question?.title || "实操题"}</h2>
+          <p>{currentQuestionText}</p>
+        </section>
+      )}
+      {(isDialogue || isPractical) && (
+        <div className="assessment-workspace">
+          <section className="assessment-panel evaluator-panel">
+            <div className="panel-heading">
+              <span className="ai-symbol"><Bot size={19} /></span>
+              <div>
+                <strong>AI 测评官</strong>
+                <small>负责出题、追问和评分</small>
+              </div>
+            </div>
+            <div className="panel-messages">
+              {evaluatorItems.length
+                ? evaluatorItems.map(renderMessage)
+                : <p className="panel-empty">等待测评官发送题目</p>}
+              {sending && <div className="thinking"><span /><span /><span /> AI 测评官正在处理</div>}
+            </div>
+            {(isDialogue || isPractical) && (
+              <div className="composer followup-composer">
+                <textarea
+                  value={followupText}
+                  onChange={(e) => setFollowupText(e.target.value)}
+                  placeholder="回复测评官的追问……"
+                />
+                <div className="composer-foot">
+                  <button className="primary" disabled={!followupText.trim() || sending || !question} onClick={sendFollowup}>
+                    {sending ? "发送中…" : "回复追问"} <ArrowRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {workspaceVisible && (
+          <section className="assessment-panel work-panel">
+            {isDialogue ? (
+              <>
+                <div className="panel-heading">
+                  <span className="ai-symbol"><Bot size={19} /></span>
+                  <div>
+                    <strong>DeepSeek 普通对话</strong>
+                    <small>仅用于辅助完成题目，不参与评分</small>
+                  </div>
+                </div>
+                <div className="panel-messages">
+                  {llmItems.length
+                    ? llmItems.map(renderMessage)
+                    : <p className="panel-empty">在这里和 DeepSeek 对话</p>}
+                </div>
+                <div className="composer side-composer">
+                  <textarea
+                    value={text}
+                    onChange={(event) => setText(event.target.value)}
+                    placeholder="输入你想咨询 DeepSeek 的内容……"
+                  />
+                  <div className="composer-foot">
+                    <span>{text.length} 字</span>
+                    <button className="primary" disabled={!text.trim() || sending || !question} onClick={send}>
+                      {sending ? "发送中…" : "发送"} <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="composer final-submission side-composer">
+                  <div className="final-submission-title">
+                    <strong>提交最终结果</strong>
+                    <small>提交后，测评官会结合对话记录和最终结果评分。</small>
+                  </div>
+                  <textarea
+                    value={finalText}
+                    onChange={(event) => setFinalText(event.target.value)}
+                    placeholder="填写你最终提交给题目的结果……"
+                  />
+                  <div className="composer-foot">
+                    <span>{finalText.length} 字</span>
+                    <button className="primary" disabled={!finalText.trim() || sending || !question} onClick={submitFinal}>
+                      {sending ? "评分中…" : "提交最终结果"} <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="practical-work-panel">
+                <div className="practical-question">
+                  <span className="eyebrow">PRACTICAL TASK</span>
+                  <h2>{question?.title || "实操题"}</h2>
+                  <p>{currentQuestionText}</p>
+                </div>
+                <div className="composer final-submission practical-submission">
+                  <div className="panel-heading">
+                    <span className="ai-symbol"><Bot size={19} /></span>
+                    <div>
+                      <strong>提交实操成果</strong>
+                      <small>测评官只根据最终产物或结果评分</small>
+                    </div>
+                  </div>
+                  <textarea
+                    value={finalText}
+                    onChange={(event) => setFinalText(event.target.value)}
+                    placeholder="粘贴或输入最终产物、答案或结果……"
+                  />
+                  <div className="upload-row">
+                    <label className="upload-btn">
+                      <input type="file" accept=".doc,.docx,.pdf,.png,.jpg,.jpeg,.txt" onChange={uploadFile} disabled={uploading} style={{display:"none"}} />
+                      {uploading ? "上传中…" : attachFile ? "已选: " + attachFile.name : "📎 上传附件"}
+                    </label>
+                    {attachFile && <button className="text-btn" onClick={() => setAttachFile(null)}>移除</button>}
+                  </div>
+                  <div className="composer-foot">
+                    <span>{finalText.length} 字</span>
+                    <button className="primary" disabled={!finalText.trim() || sending || !question} onClick={submitFinal}>
+                      {sending ? "评分中…" : "提交成果"} <ArrowRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+          )}
+        </div>
+      )}
+      {!isDialogue && !isPractical && (
       <div className="conversation">
         <div className="conversation-title"><span className="ai-symbol"><Bot size={19} /></span><div><strong>AI 测评官</strong><small>DeepSeek · 全程统一对话</small></div></div>
         {items.map((item) => <div className={`message ${item.kind === "question" ? `ai question-prompt${item.answered ? " question-answered" : ""}` : item.from}`} key={item.id}><div className="bubble">{item.text || (sending && item.from === "ai" ? "正在思考…" : "")}</div><small>{item.kind === "question" ? (item.answered ? "AI 测评官 · 本题已答完" : "AI 测评官 · 题目") : item.from === "ai" ? "AI 测评官" : "你"}</small></div>)}
         {sending && <div className="thinking"><span /><span /><span /> DeepSeek 正在思考</div>}
       </div>
+      )}
+      {!isDialogue && !isPractical && (
       <div className="composer">
         {currentOptions.length > 0 && <div className="composer-options"><div className="composer-options-label">参考选项 · 可点击填入，也可以自行组织语言</div><div className="composer-option-list">{currentOptions.map((option) => <button key={option} type="button" onClick={() => setText(option)}>{option}</button>)}</div></div>}
         <textarea
@@ -171,6 +437,26 @@ export function AssessmentPage({ go, notify }) {
         />
         <div className="composer-foot"><span>{text.length} 字 · 开放式回答</span><button className="primary" disabled={!text.trim() || sending || !question} onClick={send}>{sending ? "发送中…" : "发送"} <ArrowRight size={16} /></button></div>
       </div>
+      )}
+      {isDialogue && question?.type === "__legacy__" && (
+        <div className="composer final-submission">
+          <div className="final-submission-title">
+            <strong>{isPractical ? "提交最终产物或结果" : "提交最终结果"}</strong>
+            <small>{isPractical ? "测评 Agent 只根据这里的内容评分，不分析完成过程。" : "提交后，测评 Agent 会结合 DeepSeek 对话记录和最终结果评分。"}</small>
+          </div>
+          <textarea
+            value={finalText}
+            onChange={(event) => setFinalText(event.target.value)}
+            placeholder={isPractical ? "���������������ճ���������" : "�������������ύ�Ľ������"}
+          />
+          <div className="composer-foot">
+            <span>����������ɺ��ύ</span>
+            <button className="primary" disabled={!finalText.trim() || sending || !question} onClick={submitFinal}>
+              {sending ? "�����С�" : "�ύ���ⲿ��"} <ArrowRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -190,8 +476,8 @@ export function ResultPage({ go }) {
   // 本次没考到的维度按 0 分画并标注出来，避免被误读成「能力为 0」。
   const axes = taxonomy.length
     ? taxonomy.map((group) => group.dimension)
-    : (data?.dimensions || []).map((row) => row.dimension);
-  const scoreMap = new Map((data?.dimensions || []).map((row) => [row.dimension, Number(row.score)]));
+    : (data?.dimensions || []).map((row) => row.name);
+  const scoreMap = new Map((data?.dimensions || []).map((row) => [row.name, Number(row.score)]));
   const values = axes.map((name) => (scoreMap.has(name) ? scoreMap.get(name) : 0));
   const missing = axes.filter((name) => !scoreMap.has(name));
   const latest = data?.assessment;
@@ -233,7 +519,23 @@ export function ResultPage({ go }) {
         </section>
         <section className="panel result-advice">
           <h3>学习建议</h3>
-          <p>{data?.advice || "本次测评暂未生成学习建议。"}</p>
+                    {(() => {
+            const raw = data?.advice;
+            if (!raw) return <p>本次测评暂未生成学习建议。</p>;
+            try {
+              const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
+              if (typeof obj === "object" && obj !== null) {
+                const keys = Object.keys(obj);
+                return keys.map((k) => (
+                  <div key={k} className="advice-block">
+                    <h4>{k}</h4>
+                    <ul>{(Array.isArray(obj[k]) ? obj[k] : [obj[k]]).map((item, i) => <li key={i}>{typeof item === "object" ? JSON.stringify(item) : String(item)}</li>)}</ul>
+                  </div>
+                ));
+              }
+            } catch(e) {}
+            return <p>{raw}</p>;
+          })()}
         </section>
       </div>
 

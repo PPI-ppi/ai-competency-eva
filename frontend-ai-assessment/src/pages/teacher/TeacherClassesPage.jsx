@@ -273,9 +273,11 @@ export function TeacherClassesPage({ notify }) {
   const [items, setItems] = useState([]);
   const [current, setCurrent] = useState(null);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", description: "" });
+  // weights: { 考察点名: 0-10整数 }，六维分组自动罗列
+  const [form, setForm] = useState({ name: "", description: "", weights: {} });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [taxonomy, setTaxonomy] = useState([]);
 
   // 一次只展示一个班级：列表刷新后仍然停在原来选中的那个，它被删掉或首次加载才落到第一个
   // useCallback：同上，挂载时拉一次，之后由「刷新」按钮复用
@@ -293,7 +295,25 @@ export function TeacherClassesPage({ notify }) {
 
   useEffect(() => {
     load();
+    questionApi.taxonomy().then(setTaxonomy).catch((error) => notify(error, "error"));
   }, [load]);
+
+  // 打开创建表单时，初始化所有考察点权重为 1
+  useEffect(() => {
+    if (!open || !taxonomy.length) return;
+    const initWeights = {};
+    taxonomy.forEach((group) => {
+      (group.points || []).forEach((p) => {
+        initWeights[p.name] = 1;
+      });
+    });
+    setForm((prev) => ({ ...prev, weights: initWeights }));
+  }, [open, taxonomy]);
+
+  const setWeight = (pointName, value) => {
+    const w = Math.max(0, Math.min(10, Math.floor(Number(value) || 0)));
+    setForm((prev) => ({ ...prev, weights: { ...prev.weights, [pointName]: w } }));
+  };
 
   const create = async (event) => {
     event.preventDefault();
@@ -301,10 +321,14 @@ export function TeacherClassesPage({ notify }) {
     if (!form.name.trim()) return notify("请填写班级名称", "error");
     setCreating(true);
     try {
-      const created = await classApi.create(form);
+      const created = await classApi.create({
+        name: form.name,
+        description: form.description,
+        pointWeights: form.weights,
+      });
       notify(`班级创建成功，邀请码：${created.inviteCode}`, "success");
       setOpen(false);
-      setForm({ name: "", description: "" });
+      setForm({ name: "", description: "", weights: {} });
       setCurrent(created.id);
       load();
     } catch (error) {
@@ -338,6 +362,29 @@ export function TeacherClassesPage({ notify }) {
               value={form.description}
               onChange={(v) => setForm({ ...form, description: v })}
             />
+          </div>
+          <div className="field">
+            <span>考察点权重（0-10 整数，0 表示该点不纳入总分；发布任务时只读不改）</span>
+            {taxonomy.map((group) => (
+              <div key={group.dimension} className="weight-group">
+                <h4>{group.dimension}</h4>
+                <div className="weight-grid">
+                  {(group.points || []).map((point) => (
+                    <label className="weight-row" key={point.name}>
+                      <span className="weight-point-name">{point.name}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="10"
+                        step="1"
+                        value={form.weights[point.name] ?? 0}
+                        onChange={(e) => setWeight(point.name, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
           <button className="primary" disabled={creating}>
             {creating ? "正在创建…" : "保存并生成邀请码"}

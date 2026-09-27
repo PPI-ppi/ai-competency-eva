@@ -104,6 +104,7 @@ public class AssessmentAgentService {
 
         engine.initializeExistingAssessment(assessmentId);
         String content = String.valueOf(body == null ? "" : body.getOrDefault("content", "")).trim();
+        String action = String.valueOf(body == null ? "answer" : body.getOrDefault("action", "answer"));
         AssessmentQuestion current = currentQuestion(assessmentId);
 
         try {
@@ -120,6 +121,34 @@ public class AssessmentAgentService {
 
             if (current == null) {
                 sse(out, "error", Map.of("message", "当前没有待回答题目"));
+                return;
+            }
+
+            if ("chat".equalsIgnoreCase(action)) {
+                if (!"DIALOGUE".equalsIgnoreCase(current.getType())) {
+                    sse(out, "error", Map.of("message", "ʵ�������ύ������"));
+                    return;
+                }
+                handleDialogueChat(current, content, out);
+                sse(out, "done", Map.of("reply", ""));
+                return;
+            }
+
+            if ("submit".equalsIgnoreCase(action) && awaitingFollowup(current)) {
+                String followupAnswer = String.valueOf(
+                        body == null ? content : body.getOrDefault("finalSubmission", content)).trim();
+                handleFollowupAnswer(current, followupAnswer, out);
+                sse(out, "done", Map.of("reply", ""));
+                return;
+            }
+
+            if ("submit".equalsIgnoreCase(action)
+                    && ("DIALOGUE".equalsIgnoreCase(current.getType())
+                    || "PRACTICAL".equalsIgnoreCase(current.getType()))) {
+                String finalSubmission = String.valueOf(
+                        body == null ? content : body.getOrDefault("finalSubmission", content)).trim();
+                handleFinalSubmission(current, finalSubmission, out);
+                sse(out, "done", Map.of("reply", ""));
                 return;
             }
 
@@ -160,6 +189,60 @@ public class AssessmentAgentService {
         openNextOrFinish(current.getAssessmentId(), out);
     }
 
+    private void handleDialogueChat(AssessmentQuestion current, String content, OutputStream out) {
+        if (content.isBlank()) throw new BusinessException("�������ݲ��ܿ�");
+        List<LlmClient.ChatTurn> history = ordinaryConversation(current.getId());
+        saveMessage(current.getAssessmentId(), current.getId(), "student", content);
+        String reply = llm.chat(questionContext(current), history, content);
+        saveMessage(current.getAssessmentId(), current.getId(), "llm", reply);
+        sse(out, "delta", Map.of("text", reply));
+    }
+
+    private void handleFinalSubmission(AssessmentQuestion current, String finalSubmission, OutputStream out) {
+        if (finalSubmission.isBlank()) throw new BusinessException("����ύ���յĽ������");
+        List<LlmClient.ChatTurn> conversation = userMessagesOnly(current.getId());
+        LlmClient.ScoreResult score = llm.scoreSubmission(
+                questionContext(current), finalSubmission, conversation, List.of());
+        EngineService.ScoreResultOutcome outcome = engine.scoreResult(
+                current.getAssessmentId(), current.getQuestionId(), finalSubmission,
+                score.score(), score.r(), score.clarity(), score.comment(), List.of(), List.of());
+        current = assessmentQuestions.findById(current.getId()).orElse(current);
+        if (outcome.needFollowUp()) {
+            LlmClient.FollowupDecision decision = llm.followup(
+                    questionContext(current), finalSubmission, List.of(), 0);
+            if (decision.finished() || decision.question() == null || decision.question().isBlank()) {
+                finishFollowup(current, decision.turns(), decision.endReason(), out);
+            } else {
+                saveMessage(current.getAssessmentId(), current.getId(), "ai", decision.question());
+                sse(out, "delta", Map.of("text", decision.question()));
+            }
+            return;
+        }
+        sse(out, "answered", Map.of("questionId", current.getId(), "score", score.score(), "failed", false));
+        openNextOrFinish(current.getAssessmentId(), out);
+    }
+
+    private List<LlmClient.ChatTurn> ordinaryConversation(Long assessmentQuestionId) {
+        return assessments.findByAssessmentQuestionIdOrderBySequenceNo(assessmentQuestionId).stream()
+                .filter(message -> "student".equals(message.getSenderType())
+                        || "llm".equals(message.getSenderType()))
+                .map(message -> new LlmClient.ChatTurn(
+                        "llm".equals(message.getSenderType()) ? "assistant" : "user",
+                        message.getContent()))
+                .toList();
+    }
+
+    /**
+     * 评分用：只取学生对作答 AI 说的话（提示词），不带 AI 的回复。
+     * 考官只看学生怎么使用 AI，不看 AI 回了什么；成果好坏另看 finalSubmission。
+     */
+    private List<LlmClient.ChatTurn> userMessagesOnly(Long assessmentQuestionId) {
+        return assessments.findByAssessmentQuestionIdOrderBySequenceNo(assessmentQuestionId).stream()
+                .filter(message -> "student".equals(message.getSenderType()))
+                .map(message -> new LlmClient.ChatTurn("user", message.getContent()))
+                .toList();
+    }
+
     private void handleFollowupAnswer(AssessmentQuestion current, String content, OutputStream out) {
         saveMessage(current.getAssessmentId(), current.getId(), "student", content);
         List<AssessmentMessage> messages = assessments.findByAssessmentQuestionIdOrderBySequenceNo(current.getId());
@@ -188,7 +271,14 @@ public class AssessmentAgentService {
         List<AssessmentMessage> messages = assessments.findByAssessmentQuestionIdOrderBySequenceNo(current.getId());
         String originalAnswer = originalAnswer(messages);
         List<LlmClient.FollowupTurn> safeTurns = turns == null ? followupTurns(messages) : turns;
-        LlmClient.ScoreResult finalScore = llm.score(questionContext(current), originalAnswer, safeTurns);
+        AssessmentAnswer savedAnswer = assessments.findByAssessmentQuestionId(current.getId()).orElse(null);
+        String finalSubmission = savedAnswer == null ? originalAnswer : savedAnswer.getAnswerContent();
+        LlmClient.ScoreResult finalScore =
+                ("DIALOGUE".equalsIgnoreCase(current.getType())
+                        || "PRACTICAL".equalsIgnoreCase(current.getType()))
+                        ? llm.scoreSubmission(questionContext(current), finalSubmission,
+                        userMessagesOnly(current.getId()), safeTurns)
+                        : llm.score(questionContext(current), originalAnswer, safeTurns);
 
         List<EngineService.FollowupTurn> engineTurns = safeTurns.stream()
                 .map(t -> new EngineService.FollowupTurn(t.ask(), t.answer()))
@@ -322,6 +412,7 @@ public class AssessmentAgentService {
         data.put("id", q.getId());
         data.put("content", q.getContentSnapshot());
         data.put("options", q.getOptionsSnapshot());
+        data.put("type", q.getType());
         return data;
     }
 

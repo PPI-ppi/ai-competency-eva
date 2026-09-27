@@ -11,7 +11,6 @@ export const EMPTY_QUESTION_FORM = {
   answer: "",
   rubric: "",
   difficulty: 2,
-  score: 5,
   dimensions: [],
   assessmentPoints: [],
 };
@@ -64,12 +63,6 @@ export function QuestionForm({ form, setForm, onSubmit, taxonomy, submitText = "
           type="number"
           value={form.difficulty}
           onChange={(value) => setForm({ ...form, difficulty: value })}
-        />
-        <Field
-          label="分值"
-          type="number"
-          value={form.score}
-          onChange={(value) => setForm({ ...form, score: value })}
         />
       </div>
 

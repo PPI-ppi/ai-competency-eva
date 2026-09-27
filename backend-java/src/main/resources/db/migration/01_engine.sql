@@ -1,4 +1,16 @@
 -- ============================================================
+-- Organization point weights and fixed question score migration.
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE classes ADD COLUMN point_weights TEXT NULL',
+    'DO 0')
+FROM information_schema.columns
+WHERE table_schema = DATABASE() AND table_name = 'classes'
+  AND column_name = 'point_weights');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+UPDATE questions SET score = 100 WHERE score IS NULL OR score <> 100;
+ALTER TABLE questions MODIFY COLUMN score INT NOT NULL DEFAULT 100;
+
 -- 自适应引擎 5.0 · 增量迁移（第 1 批）
 -- 风格对齐 database.sql：幂等、无外键、utf8mb4、可重复执行
 -- 本文件只增不改：新表 + 新列，不动现有列的数据与类型

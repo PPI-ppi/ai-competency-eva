@@ -114,6 +114,7 @@ export const classApi = {
   // 班级能力数据：一次拿到雷达图、技能树、趋势曲线、上一次对比需要的全部数据。
   myAbility: (classId) => request(`/classes/${classId}/my-ability`),
   create: (payload) => post("/classes", payload),
+  weightSupport: () => request("/classes/weight-support"),
   detail: (id) => request(`/classes/${id}`),
   members: (id) => request(`/classes/${id}/members`),
   leave: (id) => request(`/classes/${id}/leave`, { method: "DELETE" }),
@@ -165,7 +166,7 @@ export const assessmentApi = {
    * 事件由后端决定——question（当前题目）、delta（发言片段）、
    * answered（某题答完）、finished（整场结束）、error。
    */
-  chat: async (id, content, onEvent) => {
+  chat: async (id, content, onEvent, extra = {}) => {
     const token = readToken();
     const response = await fetch(
       `${API_BASE}/assessments/${id}/chat/stream`,
@@ -176,7 +177,7 @@ export const assessmentApi = {
           Accept: "text/event-stream",
           ...(token ? { Authorization: token } : {}),
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...extra }),
       },
     );
     if (!response.ok || !response.body) {

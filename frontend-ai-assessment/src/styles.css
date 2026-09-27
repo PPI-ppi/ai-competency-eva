@@ -1136,7 +1136,7 @@ td small {
 }
 .assessment-page {
   min-height: calc(100vh - 68px);
-  max-width: 900px;
+  max-width: 1280px;
   margin: auto;
   padding: 30px 5% 34px;
   display: flex;
@@ -1187,6 +1187,91 @@ td small {
   color: #999;
   font-size: 11px;
 }
+.assessment-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  padding-top: 28px;
+}
+.assessment-panel {
+  min-height: 0;
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-heading {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-heading strong,
+.panel-heading small {
+  display: block;
+}
+.panel-heading strong {
+  font-size: 13px;
+}
+.panel-heading small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.panel-messages {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 22px;
+  overflow-y: auto;
+}
+.panel-messages .message {
+  max-width: 92%;
+}
+.panel-empty {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 50px 10px;
+}
+.side-composer {
+  flex: none;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+.work-panel > .practical-submission {
+  flex: 1;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.practical-submission .panel-heading {
+  border-bottom: 1px solid var(--line);
+}
+.practical-submission textarea {
+  flex: 1;
+  min-height: 220px;
+  padding: 20px;
+}
+.practical-question {
+  flex: none;
+  padding: 28px 22px 8px;
+}
+.practical-question h2 {
+  margin: 10px 0 14px;
+  font-size: 22px;
+}
+.practical-question p {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.8;
+}
 .conversation {
   padding: 85px 5% 45px;
   flex: 1;
@@ -1194,6 +1279,36 @@ td small {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+}
+.practical-conversation {
+  display: none;
+}
+.practical-question {
+  flex: none;
+  padding: 28px 22px 8px;
+  overflow: visible;
+}
+.practical-question h2 {
+  margin: 10px 0 14px;
+  font-size: 22px;
+}
+.practical-question p {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.final-submission-title {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.final-submission-title strong {
+  font-size: 13px;
+}
+.final-submission-title small {
+  color: var(--muted);
+  font-size: 11px;
 }
 .conversation-title {
   display: flex;
@@ -2617,3 +2732,38 @@ td small {
   background: #fff;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.18);
 }
+
+@media (max-width: 760px) {
+  .assessment-workspace {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .assessment-panel {
+    min-height: 420px;
+  }
+  .assessment-head {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .assessment-progress {
+    order: 3;
+    flex-basis: 100%;
+  }
+}
+
+/* 班级考察点权重设置 */
+.weight-group { margin: 12px 0; }
+.weight-group h4 { margin: 0 0 8px; font-size: 14px; color: #333; border-left: 3px solid #4f46e5; padding-left: 8px; }
+.weight-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.weight-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: #f8f9fa; border-radius: 6px; }
+.weight-point-name { font-size: 13px; color: #444; }
+.weight-row input { width: 70px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; text-align: center; }
+
+.upload-row { display:flex; align-items:center; gap:8px; padding:6px 0; }
+.upload-btn { display:inline-block; padding:6px 14px; background:#f0f0f0; border:1px dashed #999; border-radius:6px; cursor:pointer; font-size:13px; }
+.upload-btn:hover { background:#e8e8e8; }
+
+.advice-block { margin-bottom:14px; }
+.advice-block h4 { margin:0 0 6px 0; font-size:14px; color:#333; }
+.advice-block ul { margin:0; padding-left:20px; }
+.advice-block li { font-size:13px; line-height:1.7; color:#555; }
