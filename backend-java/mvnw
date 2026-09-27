@@ -1,4 +1,7 @@
 #!/bin/sh
 set -e
 BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Git Bash 里 pwd 给出 /c/... 这类路径，Windows 版 java 认不出来，
+# 结果就是 ClassNotFoundException: org.apache.maven.wrapper.MavenWrapperMain。
+if command -v cygpath >/dev/null 2>&1; then BASE_DIR=$(cygpath -w "$BASE_DIR"); fi
 exec java -Dmaven.multiModuleProjectDirectory="$BASE_DIR" -cp "$BASE_DIR/.mvn/wrapper/maven-wrapper.jar" org.apache.maven.wrapper.MavenWrapperMain "$@"

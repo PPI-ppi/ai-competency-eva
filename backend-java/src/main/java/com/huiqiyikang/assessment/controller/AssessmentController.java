@@ -7,7 +7,7 @@ import com.huiqiyikang.assessment.common.BusinessException;
 import com.huiqiyikang.assessment.domain.AiTaxonomy;
 import com.huiqiyikang.assessment.entity.Assessment;
 import com.huiqiyikang.assessment.entity.AssessmentTask;
-import com.huiqiyikang.assessment.service.AiConversationService;
+import com.huiqiyikang.assessment.service.AssessmentAgentService;
 import com.huiqiyikang.assessment.service.AssessmentService;
 import com.huiqiyikang.assessment.service.ClassRoomService;
 import com.huiqiyikang.assessment.service.TaskService;
@@ -36,15 +36,15 @@ public class AssessmentController {
     private final AssessmentService assessments;
     private final TaskService tasks;
     private final ClassRoomService members;
-    private final AiConversationService ai;
+    private final AssessmentAgentService agent;
     private final ObjectMapper mapper;
 
     public AssessmentController(AssessmentService assessments, TaskService tasks, ClassRoomService members,
-            AiConversationService ai, ObjectMapper mapper) {
+            AssessmentAgentService agent, ObjectMapper mapper) {
         this.assessments = assessments;
         this.tasks = tasks;
         this.members = members;
-        this.ai = ai;
+        this.agent = agent;
         this.mapper = mapper;
     }
 
@@ -164,7 +164,7 @@ public class AssessmentController {
     @GetMapping("/assessments/{id}/conversation")
     public ApiResponse<?> conversation(@PathVariable Long id) {
         owned(id);
-        return ApiResponse.ok(ai.forwardGet("/internal/v1/assessments/" + id + "/conversation", uid()));
+        return ApiResponse.ok(agent.conversation(id, uid()));
     }
 
     /**
@@ -186,7 +186,7 @@ public class AssessmentController {
         payload.put("assessment_id", id);
         payload.put("student_user_id", uid());
         try {
-            ai.forwardStream("/internal/v1/assessments/" + id + "/chat/stream", payload, uid(), out);
+            agent.chatStream(id, uid(), payload, out);
         } catch (BusinessException e) {
             // 已经进入流式响应，只能用 SSE 事件把失败告诉前端。
             if (!response.isCommitted()) {
@@ -201,14 +201,14 @@ public class AssessmentController {
     @PostMapping("/assessments/{id}/complete")
     public ApiResponse<?> complete(@PathVariable Long id) {
         owned(id);
-        return ApiResponse.ok(ai.forwardPost("/internal/v1/assessments/" + id + "/complete", Map.of(), uid()));
+        return ApiResponse.ok(agent.complete(id, uid()));
     }
 
     /** 获取结果。 */
     @GetMapping("/assessments/{id}/result")
     public ApiResponse<?> result(@PathVariable Long id) {
         owned(id);
-        return ApiResponse.ok(ai.forwardGet("/internal/v1/assessments/" + id + "/result", uid()));
+        return ApiResponse.ok(agent.result(id, uid()));
     }
 
     private String json(List<String> values) {

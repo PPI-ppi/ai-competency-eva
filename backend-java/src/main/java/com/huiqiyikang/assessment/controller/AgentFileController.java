@@ -107,7 +107,7 @@ public class AgentFileController {
     public ApiResponse<Map<String, Object>> runResult(@PathVariable Long id,
                                                       @RequestBody Map<String, String> body) {
         AssessmentArtifact a = artifacts.findById(id)
-                .orElseThrow(() -> new BusinessException("成果不存在", 404));
+                .orElseThrow(() -> new BusinessException("成果不存在", HttpStatus.NOT_FOUND));
         a.setRunStatus(body.getOrDefault("runStatus", a.getRunStatus()));
         a.setRunResult(body.get("runResult"));
         artifacts.save(a);

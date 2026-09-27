@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.huiqiyikang.assessment.common.BusinessException;
 import com.huiqiyikang.assessment.entity.*;
 import com.huiqiyikang.assessment.mapper.*;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -80,7 +81,7 @@ public class EngineService {
                         return assessments.save(na);
                     });
         } else {
-            a = new Assessment(classId, studentUserId);
+            a = new Assessment(classId != null ? classId : 0L, studentUserId);
             a.setQuestionCount(0);
             a = assessments.save(a);
         }
@@ -113,6 +114,38 @@ public class EngineService {
         }
 
         log(a.getId(), studentUserId, a.getClassId(), "start", null,
+                "points=" + pointWeights.size());
+        return buildStartResult(a, pointWeights);
+    }
+
+    public StartResult initializeExistingAssessment(Long assessmentId) {
+        Assessment a = assessments.findById(assessmentId)
+                .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
+        if (!pointStates.findByAssessmentId(a.getId()).isEmpty()) {
+            return buildStartResult(a, null);
+        }
+
+        List<PointWeight> pointWeights = resolvePoints(
+                a.getTaskId(), a, parseJsonList(a.getDimensions()), parseJsonList(a.getAssessmentPoints()));
+        try {
+            a.setPointWeights(mapper.writeValueAsString(pointWeights.stream()
+                    .collect(java.util.stream.Collectors.toMap(PointWeight::name, PointWeight::weight))));
+            assessments.save(a);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("权重序列化失败");
+        }
+
+        for (PointWeight pw : pointWeights) {
+            AssessmentPointState s = new AssessmentPointState();
+            s.setAssessmentId(a.getId()); s.setClassId(a.getClassId());
+            s.setDimension(pw.dimension()); s.setAssessmentPoint(pw.name());
+            s.setTheta(THETA_INIT); s.setConfidence(CONFIDENCE_INIT);
+            s.setAnswerCount(0.0); s.setQuestionCount(0); s.setFollowUpCount(0);
+            s.setStatus("active");
+            pointStates.save(s);
+        }
+
+        log(a.getId(), a.getStudentUserId(), a.getClassId(), "start", null,
                 "points=" + pointWeights.size());
         return buildStartResult(a, pointWeights);
     }
@@ -174,7 +207,7 @@ public class EngineService {
 
     public NextQuestionResult nextQuestion(Long assessmentId) {
         Assessment a = assessments.findById(assessmentId)
-                .orElseThrow(() -> new BusinessException("测评不存在", 404));
+                .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
 
         // 2.1 检查是否已有未答完的题（断点续做）
         List<AssessmentQuestion> pending = assessmentQuestions.findByAssessmentIdAndStatus(assessmentId, "sent");
@@ -197,26 +230,45 @@ public class EngineService {
             return finishResult(assessmentId, "question_limit");
         }
 
-        // 2.3 第一级：选考察点 f = w·(1-c) + ε
-        AssessmentPointState chosen = pickPoint(active);
-
-        // 2.4 第二级：选难度档
-        Double currentProfile = findProfileValue(a.getStudentUserId(), a.getClassId(), chosen.getAssessmentPoint());
-        int difficultyLevel = pickDifficultyLevel(chosen, answeredCount, currentProfile);
-        double d = difficultyLevel / 5.0;
-
-        // 2.5 第三级：选题（同档优先，无题向相邻档扩展）
-        Question q = pickQuestion(a.getClassId(), chosen.getAssessmentPoint(), difficultyLevel, answeredIds(assessmentId));
-        if (q == null) {
-            // 相邻档回退
-            for (int delta : new int[]{1, -1, 2, -2}) {
-                int alt = Math.max(1, Math.min(5, difficultyLevel + delta));
-                q = pickQuestion(a.getClassId(), chosen.getAssessmentPoint(), alt, answeredIds(assessmentId));
-                if (q != null) { difficultyLevel = alt; d = alt / 5.0; break; }
+        // 2.3~2.5 选点→选难度→选题。某考察点在所有难度档均无题可出时，
+        // 标记该点 removed 并跳到下一个 active 点，直到能出题或 active 列表为空。
+        Question q = null;
+        AssessmentPointState chosen = null;
+        int difficultyLevel = 3;
+        double d = 0.6;
+        while (q == null) {
+            List<AssessmentPointState> activeNow = pointStates.findActiveByAssessmentId(assessmentId);
+            if (activeNow.isEmpty()) {
+                return finishResult(assessmentId, "all_converged");
             }
-        }
-        if (q == null) {
-            return finishResult(assessmentId, "no_question");
+            // 第一级：选考察点 f = w·(1-c) + ε
+            chosen = pickPoint(activeNow);
+
+            // 第二级：选难度档
+            Double currentProfile = findProfileValue(a.getStudentUserId(), a.getClassId(), chosen.getAssessmentPoint());
+            difficultyLevel = pickDifficultyLevel(chosen, answeredCount, currentProfile);
+            d = difficultyLevel / 5.0;
+
+            // 第三级：选题。目标档优先，再向两侧邻近档扩散（缺档时不会跳到难度1）
+            Set<Long> usedIds = answeredIds(assessmentId);
+            List<Integer> levelOrder = new ArrayList<>();
+            levelOrder.add(difficultyLevel);
+            for (int delta = 1; delta <= 4; delta++) {
+                int up = difficultyLevel + delta, dn = difficultyLevel - delta;
+                if (up <= 5) levelOrder.add(up);
+                if (dn >= 1) levelOrder.add(dn);
+            }
+            for (int lv : levelOrder) {
+                q = pickQuestion(a.getClassId(), chosen.getAssessmentPoint(), lv, usedIds);
+                if (q != null) { difficultyLevel = lv; d = lv / 5.0; break; }
+            }
+            if (q == null) {
+                // 该点题已穷尽：标记 removed、跳过，继续下一 active 点
+                chosen.setStatus("removed");
+                pointStates.save(chosen);
+                log(assessmentId, a.getStudentUserId(), a.getClassId(), "point_exhausted",
+                        chosen.getAssessmentPoint(), "no available question across levels");
+            }
         }
 
         // 2.6 建发题快照
@@ -252,7 +304,7 @@ public class EngineService {
                                            int score, double r, String clarity, String comment,
                                            List<Map<String, Object>> messages, List<Long> artifactIds) {
         AssessmentQuestion aq = assessmentQuestions.findByAssessmentIdAndQuestionId(assessmentId, questionId)
-                .orElseThrow(() -> new BusinessException("题目不存在", 404));
+                .orElseThrow(() -> new BusinessException("题目不存在", HttpStatus.NOT_FOUND));
         AssessmentPointState state = pointStates.findByAssessmentIdAndPoint(assessmentId, aq.getPointName())
                 .orElseThrow(() -> new BusinessException("考察点状态不存在"));
 
@@ -276,12 +328,15 @@ public class EngineService {
                 ? (rBelowExpected && strongSignal && lowClarity ? "signal_and_clarity"
                    : (rBelowExpected && strongSignal ? "signal" : "clarity"))
                 : "none";
+        saveAnswer(aq, answerContent, score, clarity, comment, artifactIdsJson(artifactIds));
 
         if (!needFollowUp) {
             // 直接更新 θ/c
             updateState(state, r, expectedR, u, signal, d, aq);
             aq.setFollowedUp(false);
             aq.setFollowUpTurns(0);
+            aq.setStatus("answered");
+            aq.setFinished(true);
         }
         // 需要追问时暂不更新，等 followup-result
 
@@ -306,7 +361,7 @@ public class EngineService {
         double cNew = Math.min(C_MAX, cOld + 0.5 * (1 - cOld) * consistency);
 
         // 计数权重：客观题 0.5，实操/对话 1.0
-        double weight = ("单选题".equals(aq.getType()) || "判断题".equals(aq.getType())) ? 0.5 : 1.0;
+        double weight = ("SINGLE_CHOICE".equalsIgnoreCase(aq.getType()) || "TRUE_FALSE".equalsIgnoreCase(aq.getType())) ? 0.5 : 1.0;
         double answerCountNew = state.getAnswerCount() + weight;
 
         // 状态迁移
@@ -350,18 +405,68 @@ public class EngineService {
     }
 
     private int pickDifficultyLevel(AssessmentPointState state, int answeredCount, Double profile) {
-        // 冷启动：无历史题，画像值 >=0.45 向上取档（默认 d=0.6 即 level=3）
-        if (answeredCount < 2) {
-            if (profile != null && profile >= 0.45) return 4; // 第4档 0.8
-            return 3; // 默认 0.6
+        Long assessmentId = state.getAssessmentId();
+        String point = state.getAssessmentPoint();
+        String dimension = state.getDimension();
+        List<AssessmentQuestion> all = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId);
+
+        // 统计该考察点 / 该维度已评分题的有效正确率 r
+        List<Double> pointR = new ArrayList<>();
+        List<Double> dimR = new ArrayList<>();
+        for (AssessmentQuestion q : all) {
+            Double r = effectiveR(q);
+            if (r == null) continue;
+            if (point.equals(q.getPointName())) pointR.add(r);
+            if (dimension.equals(q.getDimensionName())) dimR.add(r);
         }
-        // 近2题正确率决定升降档（第一版简化：按 lastDifficulty ±1）
+
+        int cur = currentLevel(state);
+        if (pointR.size() >= 2) {
+            // 第一级：该点最近 2 题正确率
+            double rate = (pointR.get(pointR.size() - 2) + pointR.get(pointR.size() - 1)) / 2.0;
+            return adjustByRate(cur, rate);
+        } else if (dimR.size() >= 2) {
+            // 第二级：该维度所有已考题正确率
+            double rate = dimR.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+            return adjustByRate(cur, rate);
+        } else {
+            // 第三级：按画像该点能力值取最接近档；无画像默认 L3
+            return profile != null ? nearestLevel(profile) : 3;
+        }
+    }
+
+    /** 已评分题的有效正确率：追问后取 rFinal，否则 rInitial；未评分返回 null。 */
+    private Double effectiveR(AssessmentQuestion q) {
+        return q.getRFinal() != null ? q.getRFinal() : q.getRInitial();
+    }
+
+    /** 当前难度档：优先取上一题难度，缺省 L3。 */
+    private int currentLevel(AssessmentPointState state) {
         if (state.getLastDifficulty() != null) {
-            int cur = (int) Math.round(state.getLastDifficulty() * 5);
-            // 第一版简化：保持当前档，后续按正确率调整
-            return Math.max(1, Math.min(5, cur));
+            return clampLevel((int) Math.round(state.getLastDifficulty() * 5));
         }
         return 3;
+    }
+
+    /** 正确率决定升降档：≥80% 升1档，<50% 降1档，其间维持。 */
+    private int adjustByRate(int cur, double rate) {
+        if (rate >= 0.8) return clampLevel(cur + 1);
+        if (rate < 0.5) return clampLevel(cur - 1);
+        return clampLevel(cur);
+    }
+
+    /** 画像能力值取最接近难度档（d=level/5）；恰在两档正中时，≥0.45 向上、反之向下。 */
+    private int nearestLevel(double profile) {
+        double x = profile * 5.0;
+        int floor = (int) Math.floor(x);
+        if (Math.abs((x - floor) - 0.5) < 1e-9) {
+            return clampLevel(profile >= 0.45 ? floor + 1 : floor);
+        }
+        return clampLevel((int) Math.round(x));
+    }
+
+    private int clampLevel(int level) {
+        return Math.max(1, Math.min(5, level));
     }
 
     private Question pickQuestion(Long classId, String pointName, int difficultyLevel, Set<Long> excludeIds) {
@@ -392,7 +497,7 @@ public class EngineService {
 
     private NextQuestionResult finishResult(Long assessmentId, String reason) {
         return new NextQuestionResult(null, true, reason, 0, null, null, null,
-                0, 0.0, false, 0, false, null);
+                0, 0.0, false, 0.0, 0, false, null);
     }
 
     private NextQuestionResult toNextQuestionResult(AssessmentQuestion aq, boolean finished,
@@ -448,17 +553,24 @@ public class EngineService {
     public FollowupOutcome followupResult(Long assessmentId, Long questionId,
                                            List<FollowupTurn> turns, double rFinal,
                                            String endReason, String commentFinal) {
+        return followupResult(assessmentId, questionId, turns, rFinal, endReason, commentFinal, true);
+    }
+
+    public FollowupOutcome followupResult(Long assessmentId, Long questionId,
+                                           List<FollowupTurn> turns, double rFinal,
+                                           String endReason, String commentFinal,
+                                           boolean persistTurns) {
         AssessmentQuestion aq = assessmentQuestions.findByAssessmentIdAndQuestionId(assessmentId, questionId)
-                .orElseThrow(() -> new BusinessException("题目不存在", 404));
+                .orElseThrow(() -> new BusinessException("题目不存在", HttpStatus.NOT_FOUND));
         AssessmentPointState state = pointStates.findByAssessmentIdAndPoint(assessmentId, aq.getPointName())
                 .orElseThrow(() -> new BusinessException("考察点状态不存在"));
 
         // 把追问问答写入消息表
-        if (turns != null) {
+        if (persistTurns && turns != null) {
             int seq = (int) (messages.findByAssessmentIdOrderByCreatedAt(assessmentId).size());
             for (FollowupTurn t : turns) {
                 seq++;
-                messages.save(new AssessmentMessage(assessmentId, aq.getId(), "agent", t.ask(), seq));
+                messages.save(new AssessmentMessage(assessmentId, aq.getId(), "ai", t.ask(), seq));
                 seq++;
                 messages.save(new AssessmentMessage(assessmentId, aq.getId(), "student", t.answer(), seq));
             }
@@ -473,7 +585,11 @@ public class EngineService {
 
         aq.setFollowedUp(true);
         aq.setFollowUpTurns(turns != null ? turns.size() : 0);
+        aq.setStatus("answered");
+        aq.setFinished(true);
+        aq.setAnsweredAt(java.time.Instant.now());
         assessmentQuestions.save(aq);
+        updateAnswerAfterFollowup(aq, turns, rFinal, commentFinal);
 
         state.setFollowUpCount(state.getFollowUpCount() + 1);
         pointStates.save(state);
@@ -489,6 +605,47 @@ public class EngineService {
 
     // ==================== 5. report-data：收尾取数 ====================
 
+    private String artifactIdsJson(List<Long> artifactIds) {
+        if (artifactIds == null || artifactIds.isEmpty()) return null;
+        try {
+            return mapper.writeValueAsString(artifactIds);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private void saveAnswer(AssessmentQuestion aq, String answerContent, int score,
+                            String clarity, String comment, String artifactIds) {
+        AssessmentAnswer answer = answers.findByAssessmentQuestionId(aq.getId())
+                .orElseGet(() -> new AssessmentAnswer(aq.getId(), answerContent));
+        answer.setAnswerContent(answerContent);
+        answer.setAnswerCount(1);
+        answer.setResultStatus("scored");
+        answer.setScore((double) score);
+        answer.setScoringReason(comment);
+        answer.setScoringEvidence(comment);
+        answer.setConfidence(1.0);
+        answer.setClarity(clarity);
+        answer.setArtifactIds(artifactIds);
+        answer.setScoredAt(java.time.Instant.now());
+        answers.save(answer);
+    }
+
+    private void updateAnswerAfterFollowup(AssessmentQuestion aq, List<FollowupTurn> turns,
+                                           double rFinal, String commentFinal) {
+        AssessmentAnswer answer = answers.findByAssessmentQuestionId(aq.getId())
+                .orElseGet(() -> new AssessmentAnswer(aq.getId(), ""));
+        answer.setAnswerCount(1 + (turns == null ? 0 : turns.size()));
+        answer.setResultStatus("scored");
+        answer.setScore(Math.round(rFinal * 10000.0) / 100.0);
+        answer.setScoringReason(commentFinal);
+        answer.setScoringEvidence(commentFinal);
+        answer.setConfidence(1.0);
+        answer.setClarity("high");
+        answer.setScoredAt(java.time.Instant.now());
+        answers.save(answer);
+    }
+
     public record ReportDimension(String name, Double score, Integer questionCount, boolean tested) {}
     public record ReportPoint(String name, String dimension, Double theta, Double confidence,
                                String status, Integer questionCount, Double weight, boolean lit) {}
@@ -498,93 +655,116 @@ public class EngineService {
     public record ReportData(Long assessmentId, String status, Double totalScore,
                               String abilityLevel, List<ReportDimension> dimensions,
                               List<ReportPoint> points, List<ReportAnswerRecord> answerRecords,
-                              List<String> weakPoints, List<String> strongPoints) {}
+                              List<String> weakPoints, List<String> strongPoints,
+                              boolean finished, String message) {}
 
     public ReportData reportData(Long assessmentId) {
         Assessment a = assessments.findById(assessmentId)
-                .orElseThrow(() -> new BusinessException("测评不存在", 404));
+                .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
 
-        // 幂等：已完成直接返回（不重复聚合）
-        if ("completed".equals(a.getStatus())) {
-            return buildReportData(a, null);
-        }
-
+        // 幂等：已完成直接读库返回（不重复聚合）
         List<AssessmentPointState> states = pointStates.findByAssessmentId(assessmentId);
+        boolean alreadyCompleted = "completed".equals(a.getStatus());
         if (states.isEmpty()) throw new BusinessException("测评无考察点状态");
 
-        // 聚合总分：totalScore = 100 * Σ(θ*w) / Σw
-        double weightSum = 0, weightedThetaSum = 0;
-        Map<String, List<AssessmentPointState>> byDimension = new HashMap<>();
-        for (AssessmentPointState s : states) {
-            double w = 1.0;
-            weightSum += w;
-            weightedThetaSum += s.getTheta() * w;
-            byDimension.computeIfAbsent(s.getDimension(), k -> new ArrayList<>()).add(s);
-        }
-        double totalScore = weightSum > 0 ? 100.0 * weightedThetaSum / weightSum : 0;
+        List<AssessmentQuestion> aqList = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId);
 
-        // 六维分：每维度内考察点 θ 平均
-        List<ReportDimension> dims = new ArrayList<>();
-        for (Map.Entry<String, List<AssessmentPointState>> e : byDimension.entrySet()) {
-            double avg = e.getValue().stream().mapToDouble(AssessmentPointState::getTheta).average().orElse(0);
-            dims.add(new ReportDimension(e.getKey(), 100.0 * avg, e.getValue().size(), true));
+        // ===== 乙方案：未测完不出报告 =====
+        // 还有 active（未收敛/未剔除）的考察点，且未到题量上限 → 继续出题，不出分
+        long remainingActive = states.stream().filter(s -> "active".equals(s.getStatus())).count();
+        long answeredQ = aqList.stream().filter(q -> "answered".equals(q.getStatus())).count();
+        if (!alreadyCompleted && remainingActive > 0 && answeredQ < MAX_QUESTIONS) {
+            List<ReportAnswerRecord> prog = new ArrayList<>();
+            for (AssessmentQuestion q : aqList) {
+                prog.add(new ReportAnswerRecord(q.getSequenceNo(), q.getQuestionId(), q.getType(),
+                        q.getDifficultyValue(), q.getRInitial(), q.getRFinal(),
+                        q.isFollowedUp(), q.getFollowUpTurns(), null));
+            }
+            return new ReportData(assessmentId, "incomplete", null, null,
+                    List.of(), List.of(), prog, List.of(), List.of(),
+                    false, "尚未测完：还有 " + remainingActive
+                    + " 个考察点未收敛，请继续答题（已答 " + answeredQ + "/" + MAX_QUESTIONS + " 题）");
         }
 
-        // 考察点明细 + 技能树点亮判断
+        // 权重快照（任务发布时设定；缺省 1.0）
+        Map<String, Double> weightMap = parseWeights(a.getPointWeights());
+
+        // ===== 总分（设计文档 224 行）：totalScore = 100 * Σ(θ·w) / Σw =====
+        // 仅纳入本场实际作答过（answer_count>0）的考察点；未测点 θ=0 不稀释均值。
         List<ReportPoint> points = new ArrayList<>();
         List<String> weakPoints = new ArrayList<>();
         List<String> strongPoints = new ArrayList<>();
+        Map<String, List<Double>> dimThetas = new LinkedHashMap<>();
+        double thetaSum = 0, wSum = 0;
         for (AssessmentPointState s : states) {
-            boolean lit = "converged".equals(s.getStatus()) && s.getTheta() >= 0.20 + 0.15 * s.getConfidence();
+            double w = weightMap.getOrDefault(s.getAssessmentPoint(), 1.0);
+            boolean tested = s.getAnswerCount() != null && s.getAnswerCount() > 0;
+            double pointScore = tested ? 100.0 * s.getTheta() : 0.0;
+            boolean lit = tested && pointScore >= 60.0;
             points.add(new ReportPoint(s.getAssessmentPoint(), s.getDimension(),
                     s.getTheta(), s.getConfidence(), s.getStatus(),
-                    s.getQuestionCount(), 1.0, lit));
-            if ("converged".equals(s.getStatus()) && s.getTheta() < 0.4) weakPoints.add(s.getAssessmentPoint());
+                    s.getQuestionCount(), w, lit));
+            if (tested) {
+                thetaSum += s.getTheta() * w;
+                wSum += w;
+                dimThetas.computeIfAbsent(s.getDimension(), k -> new ArrayList<>()).add(s.getTheta());
+            }
+            if (tested && pointScore < 60.0) weakPoints.add(s.getAssessmentPoint());
             if (lit) strongPoints.add(s.getAssessmentPoint());
+        }
+        Double totalScore = wSum > 0 ? clamp(100.0 * thetaSum / wSum, 0.0, 100.0) : null;
+
+        // 六维分：维度内已测考察点 θ 平均 ×100；整维未测不列出（前端按"未考察"置灰）
+        List<ReportDimension> dims = new ArrayList<>();
+        for (Map.Entry<String, List<Double>> e : dimThetas.entrySet()) {
+            double avgTheta = e.getValue().stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            int qc = states.stream()
+                    .filter(s -> e.getKey().equals(s.getDimension()) && s.getAnswerCount() != null && s.getAnswerCount() > 0)
+                    .mapToInt(AssessmentPointState::getQuestionCount).sum();
+            dims.add(new ReportDimension(e.getKey(), clamp(100.0 * avgTheta, 0.0, 100.0), qc, true));
         }
 
         // 答题记录
-        List<AssessmentQuestion> answered = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId);
         List<ReportAnswerRecord> records = new ArrayList<>();
-        for (AssessmentQuestion aq : answered) {
+        for (AssessmentQuestion aq : aqList) {
             records.add(new ReportAnswerRecord(aq.getSequenceNo(), aq.getQuestionId(), aq.getType(),
                     aq.getDifficultyValue(), aq.getRInitial(), aq.getRFinal(),
                     aq.isFollowedUp(), aq.getFollowUpTurns(), null));
         }
 
-        // 落库：维度分 + 考察点分
-        for (ReportDimension d : dims) {
-            AssessmentDimensionScore ds = new AssessmentDimensionScore();
-            ds.setAssessmentId(assessmentId); ds.setClassId(a.getClassId());
-            ds.setStudentUserId(a.getStudentUserId());
-            ds.setDimension(d.name()); ds.setScore(d.score()); ds.setQuestionCount(d.questionCount());
-            dimensionScores.save(ds);
+        // 落库：维度分 + 考察点分 + 更新画像（仅首次完成时）
+        if (!alreadyCompleted) {
+            for (ReportDimension d : dims) {
+                AssessmentDimensionScore ds = new AssessmentDimensionScore();
+                ds.setAssessmentId(assessmentId); ds.setClassId(a.getClassId());
+                ds.setStudentUserId(a.getStudentUserId());
+                ds.setDimension(d.name()); ds.setScore(d.score()); ds.setQuestionCount(d.questionCount());
+                dimensionScores.save(ds);
+            }
+            for (ReportPoint p : points) {
+                AssessmentPointScore ps = new AssessmentPointScore();
+                ps.setAssessmentId(assessmentId); ps.setClassId(a.getClassId());
+                ps.setStudentUserId(a.getStudentUserId());
+                ps.setDimension(p.dimension()); ps.setAssessmentPoint(p.name());
+                ps.setScore(100.0 * p.theta()); ps.setQuestionCount(p.questionCount());
+                pointScores.save(ps);
+            }
+            updateProfiles(a, states);
         }
-        for (ReportPoint p : points) {
-            AssessmentPointScore ps = new AssessmentPointScore();
-            ps.setAssessmentId(assessmentId); ps.setClassId(a.getClassId());
-            ps.setStudentUserId(a.getStudentUserId());
-            ps.setDimension(p.dimension()); ps.setAssessmentPoint(p.name());
-            ps.setScore(100.0 * p.theta()); ps.setQuestionCount(p.questionCount());
-            pointScores.save(ps);
-        }
-
-        // 更新画像（30天半衰期）
-        updateProfiles(a, states);
 
         // 标记测评完成
         a.setStatus("completed");
-        a.setCompletedAt(java.time.Instant.now());
+        if (a.getCompletedAt() == null) a.setCompletedAt(java.time.Instant.now());
         a.setTotalScore(totalScore);
-        a.setAverageScore(totalScore / Math.max(1, dims.size()));
-        a.setAbilityLevel(abilityLevel(totalScore));
+        a.setAverageScore(totalScore);
+        a.setAbilityLevel(totalScore == null ? null : abilityLevel(totalScore));
         assessments.save(a);
 
         log(assessmentId, a.getStudentUserId(), a.getClassId(), "finish", null,
-                "total=" + String.format("%.1f", totalScore));
+                "total=" + (totalScore == null ? "null" : String.format("%.1f", totalScore)));
 
         return new ReportData(assessmentId, "completed", totalScore, a.getAbilityLevel(),
-                dims, points, records, weakPoints, strongPoints);
+                dims, points, records, weakPoints, strongPoints, true, null);
     }
 
     /** 画像增量更新：先衰减历史，再累加本场。 */
@@ -621,7 +801,8 @@ public class EngineService {
     private ReportData buildReportData(Assessment a, List<AssessmentPointState> states) {
         // 已完成时从数据库读聚合数据（简化：直接返回已有分数）
         return new ReportData(a.getId(), a.getStatus(), a.getTotalScore(), a.getAbilityLevel(),
-                List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                "completed".equals(a.getStatus()), null);
     }
 
     private String abilityLevel(double score) {
@@ -640,7 +821,7 @@ public class EngineService {
 
     public void saveReportText(ReportTextRequest req) {
         Assessment a = assessments.findById(req.assessmentId())
-                .orElseThrow(() -> new BusinessException("测评不存在", 404));
+                .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
         try {
             a.setReportJson(mapper.writeValueAsString(req));
             assessments.save(a);
