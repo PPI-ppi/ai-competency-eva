@@ -512,6 +512,9 @@ public class EngineService {
             }
         }
         if (pool.isEmpty()) {
+            pool = questions.trainingList();
+        }
+        if (pool.isEmpty()) {
             pool = questions.publicList();
         }
         // 第一遍：匹配目标难度档 + 考察点

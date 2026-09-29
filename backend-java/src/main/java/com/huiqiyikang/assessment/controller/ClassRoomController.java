@@ -36,12 +36,13 @@ public class ClassRoomController {
     private final AbilityService abilities;
     private final ObjectMapper mapper;
     private final RateLimiter limiter;
+    private final LlmClient llm;
     private final SecureRandom random = new SecureRandom();
 
     public ClassRoomController(ClassRoomService c, ClassRoomService m, ClassRoomService i,
                                ClassRoomService q, QuestionService questions, AccountService s,
                                AccountService t, AbilityService abilities, ObjectMapper mapper,
-                               RateLimiter limiter) {
+                               RateLimiter limiter, LlmClient llm) {
         classes = c;
         members = m;
         codes = i;
@@ -52,6 +53,7 @@ public class ClassRoomController {
         this.abilities = abilities;
         this.mapper = mapper;
         this.limiter = limiter;
+        this.llm = llm;
     }
 
     public record Create(@NotBlank String name, String description, Map<String, Integer> pointWeights) {}
@@ -226,7 +228,31 @@ public class ClassRoomController {
         if (link == null) link = new ClassQuestion(id, questionId);
         link.setStatus("active");
         link.setRemovedAt(null);
-        return ApiResponse.ok(classQuestions.save(link));
+        ApiResponse<?> result = ApiResponse.ok(classQuestions.save(link));
+        // 异步生成训练题
+        try {
+            LlmClient.GeneratedQuestion gen = llm.generateSimilarQuestion(
+                new LlmClient.QuestionContext(question.getId(), question.getType(), question.getTitle(),
+                    question.getContent(), question.getOptions(), question.getAnswer(), question.getRubric()),
+                "", parseList(question.getTags()), parseList(question.getAssessmentPoints()), question.getDifficulty());
+            Question train = new Question();
+            train.setOwnerUserId(question.getOwnerUserId());
+            train.setType(gen.type());
+            train.setTitle(gen.title());
+            train.setContent(gen.content());
+            train.setOptions(gen.options());
+            train.setAnswer(gen.answer());
+            train.setRubric(gen.rubric());
+            train.setTags(gen.tags() == null ? "[]" : mapper.writeValueAsString(gen.tags()));
+            train.setAssessmentPoints(gen.assessmentPoints() == null ? "[]" : mapper.writeValueAsString(gen.assessmentPoints()));
+            train.setDifficulty(gen.difficulty());
+            train.setScore(100);
+            train.setVisibility("public");
+            train.setStatus("active");
+            train.setQuestionKind("training");
+            questions.save(train);
+        } catch (Exception ignored) {}
+        return result;
     }
 
     @DeleteMapping("/{id}/questions/{questionId}")
@@ -238,6 +264,13 @@ public class ClassRoomController {
         link.setRemovedAt(Instant.now());
         classQuestions.save(link);
         return ApiResponse.ok();
+    }
+
+        @SuppressWarnings("unchecked")
+    private List<String> parseList(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try { return mapper.readValue(json, List.class); }
+        catch (Exception e) { return List.of(); }
     }
 
     private Long uid() {

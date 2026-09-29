@@ -2,6 +2,7 @@ import {
   BookOpen,
   Compass,
   Database,
+  Dumbbell,
   FileCheck2,
   LayoutDashboard,
   ListChecks,
@@ -22,6 +23,7 @@ export const navigationByRole = {
   teacher: [
     ["dashboard", "工作台", LayoutDashboard],
     ["questions", "对话题库", Database],
+    ["training", "训练题库", Dumbbell],
     ["classes", "我的班级", Users],
     ["tasks", "测评任务", BookOpen],
     ["profile", "个人中心", Settings],

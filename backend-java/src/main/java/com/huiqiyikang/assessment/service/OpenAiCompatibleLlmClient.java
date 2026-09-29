@@ -212,6 +212,58 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                 """, reportDataJson);
     }
 
+    @Override
+    public GeneratedQuestion generateSimilarQuestion(QuestionContext question, String instruction,
+                                                     List<String> tags, List<String> assessmentPoints,
+                                                     Integer difficulty) {
+        String content = complete("""
+                你是 AI 能力测评题目设计专家。请参考给定原题，生成一道考察目标相近但题干和场景不同的新题。
+                只输出 JSON，不要输出 Markdown、代码块或任何解释文字。
+                JSON 格式：
+                {"type":"DIALOGUE","title":"题目标题","content":"题目内容","options":"参考选项，每项换行",
+                 "answer":"参考答案","rubric":"评分标准","difficulty":2,"tags":["维度"],"assessmentPoints":["考察点"]}
+                规则：
+                1. 保持原题题型、难度、维度和考察目标，不要简单替换几个词。
+                2. 新题必须可以独立作答，题干、参考答案和评分标准必须互相匹配。
+                3. 对话题必须有清晰、可执行的评分标准；没有选项时 options 设为空字符串。
+                4. difficulty 只能是 1 到 5 的整数。
+                5. tags 和 assessmentPoints 原样返回原题中的值。
+                """, """
+                原题类型：%s
+                原题标题：%s
+                原题内容：%s
+                原题参考选项：%s
+                原题参考答案：%s
+                原题评分标准：%s
+                原题难度：%s
+                原题维度：%s
+                原题考察点：%s
+                教师补充要求：%s
+                """.formatted(
+                nullToEmpty(question.type()), nullToEmpty(question.title()),
+                nullToEmpty(question.content()), nullToEmpty(question.options()),
+                nullToEmpty(question.answer()), nullToEmpty(question.rubric()),
+                difficulty == null ? 1 : difficulty, write(tags), write(assessmentPoints),
+                nullToEmpty(instruction)));
+        try {
+            JsonNode json = parseJson(content);
+            String type = text(json, "type");
+            String title = text(json, "title");
+            String body = text(json, "content");
+            if (type.isBlank() || title.isBlank() || body.isBlank()) {
+                throw new IllegalArgumentException("缺少 type、title 或 content");
+            }
+            return new GeneratedQuestion(
+                    type, title, body, text(json, "options"), text(json, "answer"),
+                    text(json, "rubric"), clamp(json.path("difficulty").asInt(1), 1, 5),
+                    readStrings(json.path("tags")), readStrings(json.path("assessmentPoints")));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("大模型相似题结果格式错误：" + e.getMessage());
+        }
+    }
+
     private String complete(String system, String user) {
         if (apiUrl == null || apiUrl.isBlank()) {
             throw new BusinessException("大模型 API 地址未配置");
@@ -286,6 +338,19 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String text(JsonNode json, String field) {
+        return json.path(field).isTextual() ? json.path(field).asText().trim() : "";
+    }
+
+    private List<String> readStrings(JsonNode node) {
+        if (!node.isArray()) return List.of();
+        List<String> values = new ArrayList<>();
+        node.forEach(item -> {
+            if (item.isTextual() && !item.asText().isBlank()) values.add(item.asText().trim());
+        });
+        return values;
     }
 
     private int clamp(int value, int min, int max) {

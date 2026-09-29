@@ -15,6 +15,11 @@ public interface LlmClient {
     record FollowupDecision(boolean finished, String question,
                             List<FollowupTurn> turns, String endReason) {}
 
+    record GeneratedQuestion(String type, String title, String content,
+                             String options, String answer, String rubric,
+                             Integer difficulty, List<String> tags,
+                             List<String> assessmentPoints) {}
+
     ScoreResult score(QuestionContext question, String answerContent,
                       List<FollowupTurn> followupHistory);
 
@@ -28,4 +33,8 @@ public interface LlmClient {
                               List<FollowupTurn> followupHistory, int followupCount);
 
     String report(String reportDataJson);
+
+    GeneratedQuestion generateSimilarQuestion(QuestionContext question, String instruction,
+                                              List<String> tags, List<String> assessmentPoints,
+                                              Integer difficulty);
 }

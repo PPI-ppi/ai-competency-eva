@@ -134,6 +134,7 @@ export const questionApi = {
   restore: (id) => post(`/questions/${id}/restore`, {}),
   detail: (id) => request(`/questions/${id}`),
   publicList: () => request("/questions/public"),
+  trainingList: () => request("/questions/training"),
   unpublish: (id) => post(`/questions/${id}/unpublish`, {}),
   copyPublic: (id) => post(`/questions/public/${id}/copy`, {}),
   // 固定分类词表：维度 + 该维度下的考察点，前端只能用这里返回的值。

@@ -41,6 +41,7 @@ const TeacherClassesPage = lazy(() =>
 const TeacherQuestionsPage = lazy(() =>
   import("../pages/teacher/TeacherPages").then((m) => ({ default: m.TeacherQuestionsPage })),
 );
+const TrainingQuestionsPage = lazy(() => import("../pages/teacher/TrainingQuestionsPage"));
 const TeacherTasksPage = lazy(() =>
   import("../pages/teacher/TeacherPages").then((m) => ({ default: m.TeacherTasksPage })),
 );
@@ -196,6 +197,7 @@ function Page({ screen, role, user, go, notify }) {
     ) : (
       <StudentDashboard user={user} go={go} notify={notify} />
     );
+  if (screen === "training") return role === "teacher" ? <TrainingQuestionsPage notify={notify} /> : <StudentDashboard user={user} go={go} notify={notify} />;
   if (screen === "tasks")
     return role === "student" ? (
       <StudentTasksPage go={go} notify={notify} />
