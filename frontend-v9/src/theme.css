@@ -1,0 +1,17 @@
+:root {
+  --color-ink: #202522;
+  --color-muted: #737b77;
+  --color-accent: #f4cf23;
+  --color-surface: #fff;
+  --color-canvas: #f2f5f1;
+  --color-dark: #292d31;
+  --color-line: rgba(32, 37, 34, .1);
+  --radius-sm: .75rem;
+  --radius-md: 1.125rem;
+  --radius-lg: 1.75rem;
+  --shadow-card: 0 .75rem 2rem rgba(32, 37, 34, .08);
+  --sidebar-width: 15.625rem;
+  --content-max: 90rem;
+  --page-gutter: clamp(1rem, 3vw, 3rem);
+  --shared-page-background: url("/ripple-ai-assessment/landing/shared-page-bg.png");
+}

@@ -26,6 +26,7 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/classes")
 public class ClassRoomController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ClassRoomController.class);
     private final ClassRoomService classes;
     private final ClassRoomService members;
     private final ClassRoomService codes;
@@ -56,24 +57,47 @@ public class ClassRoomController {
         this.llm = llm;
     }
 
-    public record Create(@NotBlank String name, String description, Map<String, Integer> pointWeights) {}
+    public record Create(@NotBlank String name, String description, Map<String, Integer> pointWeights,
+                         List<Map<String, Object>> assessmentPointWeights) {}
 
     @PostMapping
     public ApiResponse<?> create(@Valid @RequestBody Create request) {
         Long userId = uid();
         if (!teachers.existsByUserId(userId)) throw new BusinessException("只有教师可以创建班级");
-        validatePointWeights(request.pointWeights());
+        Map<String, Integer> weights = resolveCreateWeights(request);
+        validatePointWeights(weights);
         ClassRoom classroom = new ClassRoom(userId, request.name(), request.description());
-        classroom.setPointWeights(writePointWeights(request.pointWeights()));
+        classroom.setPointWeights(writePointWeights(weights));
         ClassRoom saved = classes.save(classroom);
         ClassInviteCode inviteCode = newInviteCode(saved.getId());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", saved.getId());
         result.put("name", saved.getName());
         result.put("description", Optional.ofNullable(saved.getDescription()).orElse(""));
-        result.put("pointWeights", request.pointWeights());
+        result.put("pointWeights", weights);
         result.put("inviteCode", inviteCode.getCode());
         return ApiResponse.ok(result);
+    }
+
+    /**
+     * 兼容两种创建组织契约：
+     *  - 仓库前端/老契约：pointWeights（Map<考察点, 0-10整数>）
+     *  - v9 前端：assessmentPointWeights（[{dimension, assessmentPoint, weight: 0-1小数}]，百分比合计100换算成0-10整数）
+     */
+    private Map<String, Integer> resolveCreateWeights(Create request) {
+        Map<String, Integer> weights = new LinkedHashMap<>();
+        if (request.pointWeights() != null) weights.putAll(request.pointWeights());
+        if (request.assessmentPointWeights() != null) {
+            for (Map<String, Object> item : request.assessmentPointWeights()) {
+                Object pointObj = item.get("assessmentPoint");
+                Object weightObj = item.get("weight");
+                if (pointObj == null || weightObj == null) continue;
+                String point = String.valueOf(pointObj).trim();
+                double w = Double.parseDouble(String.valueOf(weightObj));
+                weights.put(point, (int) Math.round(w * 10));
+            }
+        }
+        return weights;
     }
     @GetMapping("/weight-support")
     public ApiResponse<?> weightSupport() {
@@ -228,31 +252,101 @@ public class ClassRoomController {
         if (link == null) link = new ClassQuestion(id, questionId);
         link.setStatus("active");
         link.setRemovedAt(null);
-        ApiResponse<?> result = ApiResponse.ok(classQuestions.save(link));
-        // 异步生成训练题
+        classQuestions.save(link);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("classQuestion", link);
+        result.put("trainingStatus", "success");
+        result.put("trainingMessage", "");
+        // 加入测试题库时同步生成一道 AI 训练变体（v9 前端期望训练题库里有它）。
+        // 失败不再静默吞掉：把 trainingStatus 置为 failed 交给前端提示，并记日志。
         try {
-            LlmClient.GeneratedQuestion gen = llm.generateSimilarQuestion(
+            Question train = generateTrainingQuestion(id, question, "");
+            result.put("trainingQuestionId", train.getId());
+        } catch (Exception e) {
+            log.warn("addQuestion training generation failed, classId={} questionId={}: {}",
+                    id, questionId, e.toString());
+            result.put("trainingStatus", "failed");
+            result.put("trainingMessage", "AI 训练题生成失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
+        return ApiResponse.ok(result);
+    }
+
+    /**
+     * AI 变题：基于班级已有题目生成一道训练变体，并写入 class_questions 关联，
+     * 训练题库（按 class_questions + question_kind='training' 过滤）才能查到它。
+     */
+    @PostMapping("/{id}/questions/{questionId}/generate-training")
+    public ApiResponse<?> generateTraining(@PathVariable Long id, @PathVariable Long questionId) {
+        owned(id);
+        Question question = questions.findById(questionId)
+                .orElseThrow(() -> new BusinessException("题目不存在"));
+        if (!question.getOwnerUserId().equals(uid())) throw new BusinessException("只能基于自己拥有的题目生成训练变体");
+        Question train = generateTrainingQuestion(id, question, "");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", train.getId());
+        result.put("questionId", train.getId());
+        result.put("type", train.getType());
+        result.put("title", train.getTitle());
+        result.put("content", train.getContent());
+        result.put("sourceQuestionId", question.getId());
+        result.put("trainingStatus", "success");
+        return ApiResponse.ok(result);
+    }
+
+    /** 生成并落库一道训练题，同时建立班级关联。 */
+    private Question generateTrainingQuestion(Long classId, Question question, String instruction) {
+        LlmClient.GeneratedQuestion gen = llm.generateSimilarQuestion(
                 new LlmClient.QuestionContext(question.getId(), question.getType(), question.getTitle(),
                     question.getContent(), question.getOptions(), question.getAnswer(), question.getRubric()),
-                "", parseList(question.getTags()), parseList(question.getAssessmentPoints()), question.getDifficulty());
-            Question train = new Question();
-            train.setOwnerUserId(question.getOwnerUserId());
-            train.setType(gen.type());
-            train.setTitle(gen.title());
-            train.setContent(gen.content());
-            train.setOptions(gen.options());
-            train.setAnswer(gen.answer());
-            train.setRubric(gen.rubric());
-            train.setTags(gen.tags() == null ? "[]" : mapper.writeValueAsString(gen.tags()));
-            train.setAssessmentPoints(gen.assessmentPoints() == null ? "[]" : mapper.writeValueAsString(gen.assessmentPoints()));
-            train.setDifficulty(gen.difficulty());
-            train.setScore(100);
-            train.setVisibility("public");
-            train.setStatus("active");
-            train.setQuestionKind("training");
-            questions.save(train);
-        } catch (Exception ignored) {}
-        return result;
+                instruction, parseList(question.getTags()), parseList(question.getAssessmentPoints()),
+                question.getDifficulty());
+        Question train = new Question();
+        train.setOwnerUserId(question.getOwnerUserId());
+        train.setType(gen.type() == null || gen.type().isBlank() ? question.getType() : gen.type());
+        train.setTitle(gen.title());
+        train.setContent(gen.content());
+        train.setOptions(gen.options());
+        train.setAnswer(gen.answer());
+        train.setRubric(gen.rubric());
+        train.setTags(writeJson(gen.tags()));
+        train.setAssessmentPoints(writeJson(gen.assessmentPoints()));
+        train.setDifficulty(gen.difficulty() == null ? question.getDifficulty() : gen.difficulty());
+        train.setScore(100);
+        train.setVisibility("public");
+        train.setStatus("active");
+        train.setQuestionKind("training");
+        train.setSourceQuestionId(question.getId());
+        Question saved = questions.save(train);
+        ClassQuestion link = classQuestions.findByClassIdAndQuestionId(classId, saved.getId()).orElse(null);
+        if (link == null) link = new ClassQuestion(classId, saved.getId());
+        link.setStatus("active");
+        link.setRemovedAt(null);
+        classQuestions.save(link);
+        return saved;
+    }
+
+    /** 列表字段序列化：失败落空数组，不让一次坏数据阻塞整个变题流程。 */
+    private String writeJson(List<String> values) {
+        if (values == null) return "[]";
+        try {
+            return mapper.writeValueAsString(values);
+        } catch (JsonProcessingException e) {
+            return "[]";
+        }
+    }
+
+    /** 分类题库（测试/训练）移除题目：软删班级关联。 */
+    @DeleteMapping("/{id}/question-banks/{bankType}/questions/{questionId}")
+    public ApiResponse<Void> removeClassifiedQuestion(@PathVariable Long id, @PathVariable String bankType,
+                                                      @PathVariable Long questionId) {
+        owned(id);
+        ClassQuestion link = classQuestions.findByClassIdAndQuestionId(id, questionId)
+                .orElseThrow(() -> new BusinessException("班级中不存在该题目"));
+        link.setStatus("removed");
+        link.setRemovedAt(Instant.now());
+        classQuestions.save(link);
+        return ApiResponse.ok();
     }
 
     @DeleteMapping("/{id}/questions/{questionId}")

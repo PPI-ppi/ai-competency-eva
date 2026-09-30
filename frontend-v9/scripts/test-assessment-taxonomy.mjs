@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {expandTaxonomy,pointGroups,filterQuestions,filterOptions,TOOL_POINTS,TOOL_SCENARIOS} from '../src/assessmentTaxonomy.js';
+const groups=expandTaxonomy([{dimension:'AI工具使用',points:TOOL_POINTS.map(name=>({name}))}]);
+assert.equal(groups[0].points.length,36);
+assert.equal(new Set(groups[0].points.map(point=>point.name)).size,36);
+assert.deepEqual(expandTaxonomy(groups),groups);
+assert.deepEqual(pointGroups(groups,['AI工具使用']).slice(0,8).map(group=>group.title),TOOL_SCENARIOS);
+assert.ok(pointGroups(groups,['AI工具使用']).every(group=>group.points.length===4));
+const questions=[{id:1,tags:['AI工具使用'],assessmentPoints:['工具使用能力-文本写作'],title:'写作题'},{id:2,tags:['AI工具使用'],assessmentPoints:['工具使用能力-图像生成'],title:'图像题'},{id:3,tags:['AI工具使用'],assessmentPoints:['工具使用能力'],title:'旧题'}];
+assert.deepEqual(filterQuestions(questions,{point:'工具使用能力-文本写作'}).map(q=>q.id),[1]);
+assert.deepEqual(filterQuestions(questions,{point:'工具使用能力-图像生成',query:'写作'}),[]);
+assert.deepEqual(filterQuestions(questions,{point:'工具使用能力'}).map(q=>q.id),[3]);
+assert.ok(filterOptions(groups,questions,'AI工具使用').points.includes('工具使用能力'));
+assert.equal(pointGroups(groups,['AI工具使用'],['工具使用能力']).at(-1).points.length,4);
+assert.ok(groups[0].points.filter(p=>p.scenario).every(p=>p.available===false));
+console.log('Passed: 32 scene labels, grouped choices, exact combined filters and legacy compatibility.');

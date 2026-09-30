@@ -13,4 +13,6 @@ package com.huiqiyikang.assessment.mapper; import com.huiqiyikang.assessment.ent
  default List<Assessment> findRecentCompleted(Long classId,Long userId,int limit){return selectList(new QueryWrapper<Assessment>().eq("class_id",classId).eq("student_user_id",userId).in("status",COMPLETED_STATUSES).orderByDesc("completed_at").orderByDesc("id").last("LIMIT " + Math.max(1, limit)));}
  /** 一次取一个任务（或一组任务）下的全部测评，替代调用方把整张表读进内存再过滤。 */
  default List<Assessment> findByTaskIdIn(Collection<Long> taskIds){return taskIds==null||taskIds.isEmpty()?List.of():selectList(new QueryWrapper<Assessment>().in("task_id",taskIds));}
+ default List<Assessment> findByStudentUserId(Long userId){return selectList(new QueryWrapper<Assessment>().eq("student_user_id",userId));}
+ default List<Assessment> findByClassIdAndStatus(Long classId,String status){return selectList(new QueryWrapper<Assessment>().eq("class_id",classId).eq("status",status));}
 }

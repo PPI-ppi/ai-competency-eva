@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {weightValue,weightSummary,weightPayload,readWeights} from '../src/organizationWeights.js';
+const entry=(assessmentPoint,weight)=>({dimension:'维度',assessmentPoint,weight});
+for(const value of ['',null,'NaN','Infinity','-1','11','1.5','1e1'])assert.equal(weightValue(value),null,String(value));
+assert.equal(weightValue('0'),0);
+assert.equal(weightValue('10'),10);
+assert.equal(weightSummary([]).valid,false);
+assert.equal(weightSummary([entry('A',5),entry('A',6)]).valid,false);
+const rows=[entry('A','9'),entry('B','5'),entry('C','0')];
+assert.deepEqual(weightSummary(rows),{total:14,valid:true});
+assert.deepEqual(weightPayload(rows),{A:9,B:5,C:0});
+assert.throws(()=>weightPayload([entry('A',12)]));
+assert.deepEqual(readWeights(JSON.stringify({A:9,B:5})),[{dimension:'',assessmentPoint:'A',weight:9},{dimension:'',assessmentPoint:'B',weight:5}]);
+assert.deepEqual(readWeights(null),[]);
+console.log('Organization weight validation passed (0-10 integers, no 100% sum requirement).');

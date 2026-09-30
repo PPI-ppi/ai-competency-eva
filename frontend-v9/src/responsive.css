@@ -1,0 +1,101 @@
+/* Layout only. Font sizes, weights and families belong to typography.css. */
+.portal-mobile-toggle,.portal-mobile-close { display:none; }
+:where(.dash-main,.design-page,.student-home-v2,.teacher-home,.agent-workbench) :where(section,article,header,footer,div,span) { min-width:0; }
+:where(.dash-main,.login-page,.portal-select-page,.agent-workbench,.report-snapshot-detail) :where(h1,h2,h3,p,button,label,li) { overflow-wrap:anywhere; }
+:where(input,textarea,select) { min-width:0; max-width:100%; }
+.student-home-shell .student-welcome { height:auto; min-height:290px; }
+.student-home-shell .welcome-copy { padding:clamp(28px,4vw,56px) clamp(22px,4vw,58px); }
+.ability-standard-table,.teacher-bank-table,.question-table { max-width:100%; overscroll-behavior-x:contain; }
+
+@media (min-width:761px) and (max-width:1400px) {
+  .student-home-shell .overview-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .student-home-shell .overview-advice { grid-column:auto; flex-direction:column; }
+  .student-home-shell .student-home-v2 { padding:24px 22px 50px; }
+  .student-home-shell .core-grid { grid-template-columns:1fr; }
+}
+@media (max-width:1100px) {
+  .teacher-hero { height:auto; min-height:220px; }
+  .teacher-hero>div { min-width:0; }
+  .teacher-level-strip>div { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+}
+@media (max-width:1023px) {
+  body .dashboard.student-home-shell,
+  body .dashboard.student-home-shell.sidebar-collapsed { display:block!important; }
+  body .student-home-shell .dash-main { width:100%; margin:0!important; padding:64px 0 0!important; }
+  body .portal-mobile-toggle { display:flex; align-items:center; gap:8px; position:fixed; top:12px; left:14px; z-index:90; min-height:40px; padding:8px 14px; border:1px solid #eadac6; border-radius:22px; background:#fffaf2; color:#302b24; box-shadow:0 4px 16px #65431b14; }
+  .portal-mobile-toggle svg,.portal-mobile-close svg { width:20px; height:20px; flex:none; }
+  .portal-mobile-backdrop { position:fixed; inset:0; z-index:200; background:#20180b66; }
+  body .student-home-shell>.portal-sidebar[data-mobile],
+  body .student-home-shell.sidebar-collapsed>.portal-sidebar[data-mobile] {
+    position:fixed!important; inset:0 auto 0 0!important; z-index:210; width:min(300px,88vw)!important; min-width:0!important; max-width:88vw!important;
+    height:100dvh!important; padding:16px!important; align-items:stretch!important; gap:12px; background:#fff8ee!important; overflow:auto!important;
+    visibility:hidden; transform:translateX(-100%); box-shadow:12px 0 30px #30241022;
+  }
+  body .student-home-shell>.portal-sidebar[data-mobile][data-open="true"] { visibility:visible; transform:none; }
+  body .student-home-shell .portal-sidebar[data-mobile] .portal-mobile-close { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex:none; min-height:40px; padding:8px; border:0; background:transparent; color:#695640; }
+  body .student-home-shell .portal-sidebar[data-mobile] .portal-exit { width:100%!important; min-width:0!important; max-width:none!important; margin:0!important; padding:8px 14px!important; justify-content:flex-start!important; gap:8px!important; }
+  body .student-home-shell .portal-sidebar[data-mobile] :is(.portal-primary,.portal-secondary) { position:static!important; left:auto!important; transform:none!important; width:100%!important; min-width:0!important; height:auto!important; max-height:none!important; margin:0!important; padding:8px!important; flex:none; }
+  body .student-home-shell .portal-sidebar[data-mobile] :is(.portal-primary,.portal-secondary) button { display:grid!important; grid-template-columns:22px minmax(0,1fr) 17px!important; width:100%!important; min-width:0!important; max-width:none!important; min-height:48px!important; height:auto!important; margin:2px 0!important; padding:10px 14px!important; gap:10px!important; }
+  body .student-home-shell .portal-sidebar[data-mobile] :is(.portal-primary,.portal-secondary) button span,
+  body .student-home-shell .portal-sidebar[data-mobile] :is(.portal-primary,.portal-secondary) button>svg:last-child,
+  body .student-home-shell .portal-sidebar[data-mobile] .portal-exit span { display:block!important; white-space:normal!important; }
+  body .student-home-shell .portal-sidebar[data-mobile] .sidebar-class-card { display:flex!important; flex:none; }
+  body .student-home-shell .portal-sidebar[data-mobile] .portal-collapse { display:none!important; }
+  body .student-home-shell .student-home-v2 { padding:12px 14px 40px; }
+  body .student-home-shell .design-page,
+  body .student-home-shell .teacher-home,
+  body .teacher-shared-main>.teacher-question-bank,
+  body .teacher-shared-main>.teacher-class-page,
+  body .teacher-shared-main>.teacher-task-manage,
+  body .teacher-shared-main>.enterprise-talent-page,
+  body .teacher-shared-main>.enterprise-workbench { padding:12px 14px 40px!important; }
+  .student-home-shell .welcome-copy { padding:26px 22px; }
+  .student-home-shell .welcome-copy p br { display:none; }
+  .student-home-shell .student-welcome { min-height:230px; }
+  .student-home-shell .overview-grid { display:grid; grid-template-columns:minmax(0,1fr); }
+  .student-home-shell .overview-grid>article { min-height:0; padding:20px 0; border-right:0; border-bottom:1px solid #eee5d9; }
+  .student-home-shell .home-section { padding:20px 16px; }
+  .student-home-shell .level-path { grid-template-columns:1fr; }
+  .student-home-shell .level-standard { padding:24px 18px; }
+  .teacher-level-strip>div { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .teacher-hero { padding:26px 22px; }
+  .teacher-hero>img { display:none; }
+  .teacher-home-grid,.training-bottom-v2 { grid-template-columns:minmax(0,1fr)!important; }
+  body .training-plan-v2.training-welcome-v2 { height:auto!important; padding:24px 20px!important; }
+  .design-page-head { height:auto; min-height:58px; gap:12px; flex-wrap:wrap; }
+  body .teacher-shared-main>.design-page-head { padding:0 14px; }
+  .assessment-hero-v2 { padding:26px 20px; }
+  .assessment-hero-v2 button { width:100%; max-width:310px; height:auto; min-height:48px; padding:10px 16px; }
+  .assessment-hero-v2 small { margin:12px 0; }
+  .assessment-facts { flex-direction:column; gap:16px; margin:24px 0; }
+  .assessment-facts span { grid-template-columns:40px minmax(0,1fr); }
+  .assessment-info-v2 section>div { flex-wrap:wrap; gap:16px; }
+  .history-strip>div { grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+  .history-strip button { padding:10px 14px; }
+  .teacher-bank-title,.teacher-class-page>header,.enterprise-talent-page>header,.task-manage-title { gap:14px; }
+  .teacher-bank-title aside,.teacher-bank-toolbar,.teacher-bank-tabs { flex-wrap:wrap; gap:10px; }
+  .teacher-bank-title button,.task-manage-title>button { height:auto; min-height:46px; }
+  .task-dialog-backdrop,.question-form-backdrop { padding:12px; grid-template-columns:minmax(0,1fr); }
+  .task-publish-dialog,.task-result-dialog,.question-create-form { padding:20px 16px; width:100%; min-width:0; max-width:720px; max-height:calc(100dvh - 24px); }
+  .task-publish-dialog fieldset,.question-create-form fieldset { min-inline-size:0; }
+  .task-publish-dialog footer,.task-result-dialog footer,.agent-workbench-right>header,.agent-chat-panel>header { flex-wrap:wrap; gap:10px; }
+  .agent-chat-stream article { max-width:100%; }
+  .agent-chat-input button { padding:11px 12px; }
+  .report-snapshot-detail>header { flex-wrap:wrap; gap:12px; }
+  .report-snapshot-detail>header>div { min-width:0; }
+  .login-card { max-width:100%; }
+  .portal-select-page { padding:74px 14px 28px; }
+  .portal-select-card { width:100%; }
+}
+@media (min-width:761px) and (max-width:1023px) {
+  .student-home-shell .overview-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .student-home-shell .overview-grid .home-radar { grid-column:1/-1; }
+  .student-home-shell .overview-advice { grid-column:1/-1; }
+}
+@media (max-width:380px) {
+  .landing-v2-nav { width:calc(100% - 20px); }
+  .landing-v2-nav button { padding-inline:6px; }
+  .teacher-level-strip>div { grid-template-columns:1fr; }
+  .news-list article { grid-template-columns:48px minmax(0,1fr); gap:10px; padding-inline:0; }
+  .portal-options>button { padding:22px; }
+}

@@ -115,9 +115,13 @@ public class AgentFileController {
     }
 
     private Long userId(HttpServletRequest req) {
+        // 优先走登录态（Sa-Token），与其余接口一致；X-User-Id 兜底兼容旧调用方
+        try {
+            return cn.dev33.satoken.stp.StpUtil.getLoginIdAsLong();
+        } catch (Exception ignored) {}
         String header = req.getHeader("X-User-Id");
         if (header == null || header.isBlank())
-            throw new BusinessException("缺少 X-User-Id 请求头", HttpStatus.UNAUTHORIZED);
+            throw new BusinessException("缺少用户身份", HttpStatus.UNAUTHORIZED);
         try {
             return Long.parseLong(header.trim());
         } catch (NumberFormatException e) {

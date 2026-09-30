@@ -120,6 +120,34 @@ WHERE table_schema = DATABASE() AND table_name = 'questions'
   AND column_name = 'artifact_type');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- ---------- 3.2.1 题库分类（AI 变题功能）：test=测试题库 / training=训练题库 ----------
+-- 组织分类题库按 class_questions + question_kind 过滤；缺列时管理端题库查询会报
+-- Unknown column 'question_kind'，全新库与老库都要保证存在。
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE questions ADD COLUMN question_kind VARCHAR(16) NOT NULL DEFAULT ''test''',
+    'DO 0')
+FROM information_schema.columns
+WHERE table_schema = DATABASE() AND table_name = 'questions'
+  AND column_name = 'question_kind');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- AI 变体题标记来源题目；非变体为 NULL。前端训练题库用它标记「该题已生成过变体」。
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE questions ADD COLUMN source_question_id BIGINT NULL',
+    'DO 0')
+FROM information_schema.columns
+WHERE table_schema = DATABASE() AND table_name = 'questions'
+  AND column_name = 'source_question_id');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE questions ADD INDEX idx_questions_kind_status(question_kind, status)',
+    'DO 0')
+FROM information_schema.statistics
+WHERE table_schema = DATABASE() AND table_name = 'questions'
+  AND index_name = 'idx_questions_kind_status');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- ---------- 3.3.4 班级题目新鲜度表 ----------
 CREATE TABLE IF NOT EXISTS class_question_freshness (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,

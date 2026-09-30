@@ -38,7 +38,7 @@ export default function TrainingQuestionsPage({ notify }) {
               <p className="question-content">{q.content}</p>
               <div className="question-meta">
                 <span>难度 {q.difficulty}</span>
-                <span>{(q.tags || "").replace(/[\[\]"]/g, "")}</span>
+                <span>{(q.tags || "").replace(/[[\]"]/g, "")}</span>
               </div>
             </div>
           ))}

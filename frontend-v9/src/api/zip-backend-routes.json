@@ -1,0 +1,302 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/agent/engine/start",
+    "source": "AgentEngineController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent/engine/next-question",
+    "source": "AgentEngineController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent/engine/score-result",
+    "source": "AgentEngineController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent/engine/followup-result",
+    "source": "AgentEngineController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/agent/engine/report-data",
+    "source": "AgentEngineController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent/engine/report-text",
+    "source": "AgentEngineController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/agent/files",
+    "source": "AgentFileController.java"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/agent/files/{id}/run-result",
+    "source": "AgentFileController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/assessment-tasks/{taskId}/start",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes/{classId}/self-assessments/start",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assessments",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assessments/{id}",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assessments/{id}/conversation",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/assessments/{id}/chat/stream",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/assessments/{id}/complete",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assessments/{id}/result",
+    "source": "AssessmentController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes/{classId}/assessment-tasks",
+    "source": "AssessmentTaskController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/{classId}/assessment-tasks",
+    "source": "AssessmentTaskController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assessment-tasks/available",
+    "source": "AssessmentTaskController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/assessment-tasks/{id}",
+    "source": "AssessmentTaskDetailController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/register/student",
+    "source": "AuthController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/register/teacher",
+    "source": "AuthController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/login",
+    "source": "AuthController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/logout",
+    "source": "AuthController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/weight-support",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/managed",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/joined",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/{id}/my-ability",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/{id}",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes/join",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/classes/{id}/leave",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/{id}/members",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/classes/{id}/members/{studentId}",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes/{id}/invite-code",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/{id}/questions",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes/{id}/questions/{questionId}",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/classes/{id}/questions/{questionId}",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/client-logs",
+    "source": "ClientLogController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/questions",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/questions/public",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/questions/taxonomy",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/questions",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/questions/{id}",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/questions/{id}",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/questions/{id}/publish",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/questions/{id}/unpublish",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/questions/{id}/offline",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/questions/{id}/restore",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/questions/public/{id}/copy",
+    "source": "QuestionController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/assessment-tasks/{taskId}/results",
+    "source": "TeacherAssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/classes/{classId}/results",
+    "source": "TeacherAssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/assessments/{id}",
+    "source": "TeacherAssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/users/me",
+    "source": "UserController.java"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/me",
+    "source": "UserController.java"
+  },
+  {
+    "method": "PUT",
+    "path": "/api/users/password",
+    "source": "UserController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/classes/{id}/question-banks/{bankType}/questions",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/classes/{id}/question-banks/{bankType}/questions/{questionId}",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/classes/{id}/questions/{questionId}/generate-training",
+    "source": "ClassRoomController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/assessments/{id}/chat",
+    "source": "AssessmentController.java"
+  }
+]

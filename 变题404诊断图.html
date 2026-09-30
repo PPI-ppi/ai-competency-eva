@@ -1,0 +1,68 @@
+<html style="margin:0;padding:0;">
+<title>AI 变题 404 根因与前后端接口对齐诊断</title>
+<div style="width:100%;box-sizing:border-box;background:#f7f8fa;font-family:'Microsoft YaHei',system-ui,sans-serif;padding:16px 18px;color:#1f2329;">
+
+  <div style="border-bottom:2px solid #e5e6eb;padding-bottom:10px;margin-bottom:14px;">
+    <div style="font-size:12px;letter-spacing:1px;color:#86909c;">DIAGNOSIS · 2026-09-30</div>
+    <div style="font-size:20px;font-weight:700;">管理端「AI 变题」404 根因</div>
+  </div>
+
+  <div style="font-size:15px;line-height:1.6;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:12px 14px;margin-bottom:16px;">
+    管理端点击「AI 变题」→ 前端调用 <b>POST /api/classes/{班级id}/questions/{题目id}/generate-training</b>，
+    该路由在前端 59 条清单内（放行到网络），但<b style="color:#d4380d;">后端仓库没有任何这个路由</b> → Spring 返回 HTTP 404。
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:14px;margin-bottom:16px;">
+    <div style="flex:1;min-width:150px;background:#eef4ff;border:1px solid #adc6ff;border-radius:6px;padding:10px;font-size:13px;">
+      <div style="font-weight:700;color:#1d39c4;">① 管理端 · 我的组织</div>
+      <div style="margin-top:4px;color:#4e5969;">训练题库 Tab 点击「AI 变题 / 生成 AI 变体」按钮</div>
+    </div>
+    <div style="align-self:center;font-size:18px;color:#86909c;">→</div>
+    <div style="flex:1;min-width:150px;background:#f6ffed;border:1px solid #b7eb8f;border-radius:6px;padding:10px;font-size:13px;">
+      <div style="font-weight:700;color:#237804;">② 前端路由清单（59 条）</div>
+      <div style="margin-top:4px;color:#4e5969;">generate-training 在清单内 → 通过，发真实请求</div>
+    </div>
+    <div style="align-self:center;font-size:18px;color:#86909c;">→</div>
+    <div style="flex:1;min-width:170px;background:#fff1f0;border:1px solid #ffa39e;border-radius:6px;padding:10px;font-size:13px;">
+      <div style="font-weight:700;color:#a8071a;">③ 后端 Spring 路由表</div>
+      <div style="margin-top:4px;color:#4e5969;">POST /classes/{id}/questions/{id}/generate-training<b> 无映射</b></div>
+    </div>
+    <div style="align-self:center;font-size:18px;color:#86909c;">→</div>
+    <div style="flex:1;min-width:140px;background:#fff1f0;border:1px solid #ffa39e;border-radius:6px;padding:10px;font-size:13px;">
+      <div style="font-weight:700;color:#a8071a;">④ HTTP 404</div>
+      <div style="margin-top:4px;color:#4e5969;">前端提示「AI 变体生成失败，请重试」</div>
+    </div>
+  </div>
+
+  <div style="font-size:15px;line-height:1.6;margin-bottom:10px;">
+    接口对齐总览（前端 59 条清单 vs 后端仓库）
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
+    <div style="flex:1;min-width:210px;background:#fff;border:1px solid #e5e6eb;border-radius:8px;padding:12px 14px;">
+      <div style="font-size:13px;color:#4e5969;">后端已实现</div>
+      <div style="font-size:26px;font-weight:700;color:#237804;">57<span style="font-size:14px;color:#86909c;"> / 59 条</span></div>
+      <div style="font-size:12px;color:#86909c;margin-top:4px;">清单内其余路由后端基本齐全</div>
+    </div>
+    <div style="flex:1;min-width:210px;background:#fff;border:1px solid #ffa39e;border-radius:8px;padding:12px 14px;">
+      <div style="font-size:13px;color:#4e5969;">后端缺失（真实 404）</div>
+      <div style="font-size:26px;font-weight:700;color:#a8071a;">2<span style="font-size:14px;color:#86909c;"> 条</span></div>
+      <div style="font-size:12px;color:#86909c;margin-top:4px;">generate-training · DELETE question-banks/{id}</div>
+    </div>
+    <div style="flex:1;min-width:210px;background:#fff;border:1px solid #d3adf7;border-radius:8px;padding:12px 14px;">
+      <div style="font-size:13px;color:#4e5969;">被前端清单拦截（未收录）</div>
+      <div style="font-size:26px;font-weight:700;color:#531dab;">约 33<span style="font-size:14px;color:#86909c;"> 个调用点</span></div>
+      <div style="font-size:12px;color:#86909c;margin-top:4px;">其中后端已实现约 11 个也被前端拦（测评/报告等）</div>
+    </div>
+    <div style="flex:1;min-width:210px;background:#fff;border:1px solid #ffc53d;border-radius:8px;padding:12px 14px;">
+      <div style="font-size:13px;color:#4e5969;">后端缺陷 + 部署不一致</div>
+      <div style="font-size:26px;font-weight:700;color:#874d00;">4 + 3</div>
+      <div style="font-size:12px;color:#86909c;margin-top:4px;">训练题不关联班级 · schema 缺列 · 空壳接口 · 前后端版本不同步</div>
+    </div>
+  </div>
+
+  <div style="font-size:12px;color:#86909c;margin-top:8px;border-top:1px solid #e5e6eb;padding-top:8px;">
+    结论依据：线上前端 index-evWoIQum.js（含 59 条路由清单）· 后端仓库 ai-competency-eva HEAD 34f4fe7 + 本地未提交 WIP · 实测线上注册/登录接口行为与仓库 HEAD 不一致。完整接口清单见《前后端接口对齐问题清单.md》。
+  </div>
+</div>
+</html>

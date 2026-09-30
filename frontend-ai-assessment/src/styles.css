@@ -1426,6 +1426,12 @@ td small {
   border-color: #111;
   background: #f7f7f5;
 }
+.composer-option-list button.selected {
+  border-color: var(--accent);
+  background: #fff7df;
+  color: #7a4b00;
+  font-weight: 700;
+}
 .composer textarea {
   display: block;
   width: 100%;

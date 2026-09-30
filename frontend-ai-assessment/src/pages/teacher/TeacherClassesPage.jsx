@@ -39,7 +39,7 @@ function ClassPanel({ item, notify }) {
 
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, notify]);
 
   const act = async (fn, message) => {
     try {
@@ -296,7 +296,7 @@ export function TeacherClassesPage({ notify }) {
   useEffect(() => {
     load();
     questionApi.taxonomy().then(setTaxonomy).catch((error) => notify(error, "error"));
-  }, [load]);
+  }, [load, notify]);
 
   // 打开创建表单时，初始化所有考察点权重为 1
   useEffect(() => {

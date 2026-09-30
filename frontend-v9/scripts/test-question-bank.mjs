@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {questionPresentation,isQuestionCopied,readQuestionCopies,saveQuestionCopies} from '../src/questionBank.js';
+assert.deepEqual(questionPresentation({title:'【入门 · 0.2】',content:'实际题干'}),{heading:'实际题干',subtitle:'',difficulty:'入门 · 0.2'});
+assert.equal(questionPresentation({title:'[0.6]',content:'实际题干'}).difficulty,'0.6');
+assert.equal(questionPresentation({title:'自定义标题',content:'题干',difficulty:3}).subtitle,'自定义标题');
+assert.equal(questionPresentation({title:'【教学案例】',content:'内容'}).subtitle,'【教学案例】');
+assert.equal(isQuestionCopied({id:1},[{id:20}],{'1':20}),true);
+assert.equal(isQuestionCopied({id:1},[],{'1':20}),false);
+assert.equal(isQuestionCopied({id:2},[{id:20}],{'1':20}),false);
+const data=new Map(),storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};
+saveQuestionCopies(1,{'1':20},storage);
+assert.deepEqual(readQuestionCopies(1,storage),{'1':20});
+assert.deepEqual(readQuestionCopies(2,storage),{});
+console.log('PASS question heading, difficulty, copied source/copy IDs, account isolation, removed-copy reset');

@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {sortHistoryReports} from '../src/reportSorting.js';
+const rows=[{id:1,title:'AI甲',date:'2026-09-01',score:0},{id:2,title:'AI乙',date:'2026-09-03',score:80.5},{id:3,title:'其他',date:'2026-09-02',score:100},{id:4,title:'AI丙',date:null,score:80.5}];
+const ids=order=>sortHistoryReports(rows,'',order).map(row=>row.id);
+assert.deepEqual(ids('newest'),[2,3,1,4]);
+assert.deepEqual(ids('oldest'),[1,3,2,4]);
+assert.deepEqual(ids('score-desc'),[3,2,4,1]);
+assert.deepEqual(ids('score-asc'),[1,2,4,3]);
+assert.deepEqual(sortHistoryReports(rows,' ai ','score-desc').map(row=>row.id),[2,4,1]);
+assert.deepEqual(rows.map(row=>row.id),[1,2,3,4]);
+console.log('PASS four report orders, all rows retained, missing dates last, ties, zero, decimals and search');

@@ -47,11 +47,16 @@ CREATE TABLE IF NOT EXISTS questions (
   score INT NOT NULL DEFAULT 100,
   visibility VARCHAR(16) NOT NULL DEFAULT 'private',
   status VARCHAR(16) NOT NULL DEFAULT 'active',
+  -- 题库分类：test=测试题库 / training=训练题库（AI 变体），组织分类题库按此列过滤
+  question_kind VARCHAR(16) NOT NULL DEFAULT 'test',
+  -- AI 变体题标记来源题目；非变体为 NULL
+  source_question_id BIGINT NULL,
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   INDEX idx_questions_owner_status(owner_user_id, status),
   -- 公共题库列表：WHERE visibility=? AND status=?
-  INDEX idx_questions_visibility_status(visibility, status)
+  INDEX idx_questions_visibility_status(visibility, status),
+  INDEX idx_questions_kind_status(question_kind, status)
 );
 
 CREATE TABLE IF NOT EXISTS classes (
@@ -382,4 +387,27 @@ SET @ddl := (SELECT IF(COUNT(*) = 0,
   'DO 0')
   FROM information_schema.columns
   WHERE table_schema = DATABASE() AND table_name = 'users' AND column_name = 'email');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 13) 题库分类列（AI 变题功能）：老库补上 question_kind 与 source_question_id。
+--     question_kind 缺列时，管理端"组织测试题库/训练题库"查询会报 Unknown column。
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE questions ADD COLUMN question_kind VARCHAR(16) NOT NULL DEFAULT ''test''',
+  'DO 0')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'questions' AND column_name = 'question_kind');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE questions ADD COLUMN source_question_id BIGINT NULL',
+  'DO 0')
+  FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'questions' AND column_name = 'source_question_id');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl := (SELECT IF(COUNT(*) = 0,
+  'ALTER TABLE questions ADD INDEX idx_questions_kind_status(question_kind, status)',
+  'DO 0')
+  FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'questions' AND index_name = 'idx_questions_kind_status');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;

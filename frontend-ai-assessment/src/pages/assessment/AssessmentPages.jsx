@@ -8,6 +8,7 @@ import { isImeComposing } from "../../app/ime";
 
 // 参考方向：后端给当前题目的基础信息里带的可点选项
 const optionsOf = (question) => String(question?.options || "").split(/\r?\n|,/).map((item) => item.trim()).filter(Boolean);
+const isObjectiveType = (type) => ["SINGLE", "SINGLE_CHOICE", "TRUE_FALSE"].includes(String(type || "").toUpperCase());
 
 export function AssessmentPage({ go, notify }) {
   const [assessment] = useState(readCurrentAssessment);
@@ -31,10 +32,15 @@ export function AssessmentPage({ go, notify }) {
   // 用 useCallback 保持引用稳定：挂载 effect 与发送函数都依赖它，
   // 每次渲染都换新函数会让「只跑一次」的 effect 变成反复执行。
   const handleEvent = useCallback((aiId) => (name, payload) => {
-    if (name === "delta") {
+    if (name === "delta" || name === "followup") {
       setItems((previous) => previous.map((item) => item.id === aiId ? { ...item, text: `${item.text}${payload.text || ""}` } : item));
+      setLlmItems((previous) => previous.map((item) => item.id === aiId ? { ...item, text: `${item.text}${payload.text || ""}` } : item));
     } else if (name === "question") {
       setQuestion(payload);
+      setText("");
+      setFollowupText("");
+      setFinalText("");
+      setAttachFile(null);
       setWorkspaceVisible(true);
       pushQuestion(payload);
     } else if (name === "answered") {
@@ -131,7 +137,7 @@ export function AssessmentPage({ go, notify }) {
       await assessmentApi.chat(assessment.id, value, (name, payload) => {
         if (name === "finished") finished = true;
         else handleEvent(aiId)(name, payload);
-      }, question?.type === "DIALOGUE" ? { action: "chat" } : {});
+      }, question?.type === "DIALOGUE" ? { action: "chat" } : { action: "answer" });
       // 这一轮没有说话内容（例如这道题已经答完）就别留空气泡
       setItems((previous) => previous.filter((item) => !(item.id === aiId && !item.text)));
       if (finished) {
@@ -227,7 +233,7 @@ export function AssessmentPage({ go, notify }) {
       });
       const raw = await res.text();
       let data;
-      try { data = JSON.parse(raw); } catch(e) { data = { code: -1, message: "服务器返回: " + raw.substring(0,200) }; }
+      try { data = JSON.parse(raw); } catch { data = { code: -1, message: "服务器返回: " + raw.substring(0,200) }; }
       if (res.ok && data.code === 0) {
         setAttachFile({ name: file.name, url: data.data.fileUrl });
         notify("文件上传成功", "success");
@@ -250,6 +256,7 @@ export function AssessmentPage({ go, notify }) {
   const currentOptions = optionsOf(question);
   const isDialogue = question?.type === "DIALOGUE";
   const isPractical = question?.type === "PRACTICAL";
+  const isObjective = isObjectiveType(question?.type);
   const currentQuestionText = question?.content
     || items.find((item) => item.kind === "question" && !item.answered)?.text
     || "";
@@ -258,13 +265,13 @@ export function AssessmentPage({ go, notify }) {
   const renderMessage = (item) => (
     <div className={`message ${item.kind === "question" ? `ai question-prompt${item.answered ? " question-answered" : ""}` : item.from}`} key={item.id}>
       <div className="bubble">
-        {item.text || (sending && (item.from === "ai" || item.from === "llm") ? "����˼����" : "")}
+        {item.text || (sending && (item.from === "ai" || item.from === "llm") ? "正在思考…" : "")}
       </div>
       <small>
         {item.kind === "question"
-          ? (item.answered ? "AI ������ �� �����Ѵ���" : "AI ������ �� ��Ŀ")
+          ? (item.answered ? "AI 测评官 · 本题已答完" : "AI 测评官 · 题目")
           : item.from === "llm" ? "DeepSeek"
-            : item.from === "ai" ? "AI ������" : "��"}
+            : item.from === "ai" ? "AI 测评官" : "你"}
       </small>
     </div>
   );
@@ -422,7 +429,7 @@ export function AssessmentPage({ go, notify }) {
       )}
       {!isDialogue && !isPractical && (
       <div className="composer">
-        {currentOptions.length > 0 && <div className="composer-options"><div className="composer-options-label">参考选项 · 可点击填入，也可以自行组织语言</div><div className="composer-option-list">{currentOptions.map((option) => <button key={option} type="button" onClick={() => setText(option)}>{option}</button>)}</div></div>}
+        {currentOptions.length > 0 && <div className="composer-options"><div className="composer-options-label">{isObjective ? "选择一个答案后提交" : "参考选项 · 可点击填入，也可以自行组织语言"}</div><div className="composer-option-list">{currentOptions.map((option) => <button key={option} type="button" className={text === option ? "selected" : ""} onClick={() => setText(option)}>{option}</button>)}</div></div>}
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -435,7 +442,7 @@ export function AssessmentPage({ go, notify }) {
           }}
           placeholder={question ? "输入你的回答、理由或补充观点…" : "正在准备题目…"}
         />
-        <div className="composer-foot"><span>{text.length} 字 · 开放式回答</span><button className="primary" disabled={!text.trim() || sending || !question} onClick={send}>{sending ? "发送中…" : "发送"} <ArrowRight size={16} /></button></div>
+        <div className="composer-foot"><span>{isObjective ? "客观题提交后会立即判分" : `${text.length} 字 · 开放式回答`}</span><button className="primary" disabled={!text.trim() || sending || !question} onClick={send}>{sending ? "提交中…" : isObjective ? "提交答案" : "发送"} <ArrowRight size={16} /></button></div>
       </div>
       )}
       {isDialogue && question?.type === "__legacy__" && (
@@ -447,12 +454,12 @@ export function AssessmentPage({ go, notify }) {
           <textarea
             value={finalText}
             onChange={(event) => setFinalText(event.target.value)}
-            placeholder={isPractical ? "���������������ճ���������" : "�������������ύ�Ľ������"}
+            placeholder={isPractical ? "粘贴或输入最终产物、答案或结果…" : "填写你最终提交给题目的结果…"}
           />
           <div className="composer-foot">
-            <span>����������ɺ��ύ</span>
+            <span>确认完成后提交</span>
             <button className="primary" disabled={!finalText.trim() || sending || !question} onClick={submitFinal}>
-              {sending ? "�����С�" : "�ύ���ⲿ��"} <ArrowRight size={16} />
+              {sending ? "评分中…" : "提交最终结果"} <ArrowRight size={16} />
             </button>
           </div>
         </div>
@@ -533,7 +540,7 @@ export function ResultPage({ go }) {
                   </div>
                 ));
               }
-            } catch(e) {}
+            } catch {}
             return <p>{raw}</p>;
           })()}
         </section>

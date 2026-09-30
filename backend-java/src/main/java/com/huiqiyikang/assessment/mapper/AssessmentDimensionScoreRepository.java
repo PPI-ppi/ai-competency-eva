@@ -6,4 +6,8 @@ public interface AssessmentDimensionScoreRepository extends BaseMapperX<Assessme
     default List<AssessmentDimensionScore> findByAssessmentId(Long assessmentId){
         return selectList(new QueryWrapper<AssessmentDimensionScore>().eq("assessment_id",assessmentId).orderByAsc("dimension"));
     }
+    default List<AssessmentDimensionScore> findHistoryByClassAndStudent(Long classId, Long studentUserId){
+        return selectList(new QueryWrapper<AssessmentDimensionScore>()
+                .eq("class_id", classId).eq("student_user_id", studentUserId).orderByDesc("id"));
+    }
 }

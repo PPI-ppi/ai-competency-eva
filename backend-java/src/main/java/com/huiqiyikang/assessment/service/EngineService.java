@@ -198,7 +198,14 @@ public class EngineService {
             }
         }
         if (result.isEmpty()) {
-            // 兜底：取班级里权重最高的考察点
+            // 未指定考察点：回退班级配置的考察范围（教师建班时设定的权重），
+            // 保证引擎选点能匹配班级题库里的题目，而不是凭空取一个考察点后无题可出。
+            List<PointWeight> fromClass = new ArrayList<>();
+            for (Map.Entry<String, Double> e : loadClassWeights(a.getClassId()).entrySet()) {
+                fromClass.add(new PointWeight(e.getKey(), guessDimension(e.getKey()), e.getValue()));
+            }
+            if (!fromClass.isEmpty()) return fromClass;
+            // 最后兜底：至少保证一个可考的点，避免引擎无可考察点直接收尾。
             result.add(new PointWeight("提示词书写", "提示词工程", 1.0));
         }
         return result;
@@ -501,7 +508,7 @@ public class EngineService {
     }
 
     private Question pickQuestion(Long classId, String pointName, int difficultyLevel, Set<Long> excludeIds) {
-        // 优先从班级题库（class_questions）选题；班级未配题或没匹配时 fallback 到公开题库。
+        // 题库分层：有classId(教师任务)->班级题库; 无classId(自主测评)->test题库
         List<Question> pool = new ArrayList<>();
         if (classId != null) {
             List<ClassQuestion> cqs = classQuestions.findByClassIdAndStatus(classId, "active");
@@ -512,7 +519,7 @@ public class EngineService {
             }
         }
         if (pool.isEmpty()) {
-            pool = questions.trainingList();
+            pool = questions.testList();
         }
         if (pool.isEmpty()) {
             pool = questions.publicList();
