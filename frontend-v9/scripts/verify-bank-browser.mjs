@@ -137,9 +137,9 @@ try {
   assert.equal(await evaluate(`document.querySelector('.question-difficulty').textContent`),'难度：入门 · 0.2');
   assert.equal(await evaluate(`(()=>{const el=document.querySelector('.question-score');return el.scrollWidth<=el.clientWidth})()`),true);
   await inspect('bank-refined-before',true);
-  await evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button').click();document.querySelector('.teacher-bank-row.public:not(.head) nav button').click()`);
-  await waitFor(()=>evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button')?.textContent==='已复制'`));
-  assert.equal(await evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button').disabled`),true);
+  await evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button:last-child').click();document.querySelector('.teacher-bank-row.public:not(.head) nav button:last-child').click()`);
+  await waitFor(()=>evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button:last-child')?.textContent==='已复制'`));
+  assert.equal(await evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button:last-child').disabled`),true);
   assert.equal(await evaluate(`window.__apiRequests.filter(r=>r.pathname.endsWith('/501/copy')).length`),1);
   assert.equal(await evaluate(`document.body.innerText.includes('已复制到我的私有题库')`),false);
   await inspect('bank-refined-copied',true);
@@ -147,7 +147,7 @@ try {
   await evaluate(`[...document.querySelectorAll('.portal-primary button')].find(el=>el.title==='题库管理').click()`);
   await delay(200);
   await evaluate(`document.querySelector('.teacher-bank-title aside button').click()`);
-  await waitFor(()=>evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button')?.textContent==='已复制'`));
+  await waitFor(()=>evaluate(`document.querySelector('.teacher-bank-row.public:not(.head) nav button:last-child')?.textContent==='已复制'`));
   console.log('PASS copy button changes, repeat click sends one request, persists across refresh, score fits, question content leads');
   await send('Browser.close');
 }finally{socket?.close();chrome.kill()}

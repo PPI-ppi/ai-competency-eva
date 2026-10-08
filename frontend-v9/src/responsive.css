@@ -99,3 +99,14 @@
   .news-list article { grid-template-columns:48px minmax(0,1fr); gap:10px; padding-inline:0; }
   .portal-options>button { padding:22px; }
 }
+
+@media (max-width: 600px) {
+  .question-detail-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: 14px; }
+  .question-detail-header, .question-detail-body, .question-detail-footer { padding: 16px; }
+  .question-detail-meta { grid-template-columns: 1fr; }
+  .question-detail-footer { flex-wrap: wrap; }
+  .class-question-picker-list article { flex-wrap: wrap; }
+}
+@media (max-width: 650px) {
+  .class-question-picker-list > article { grid-template-columns: 1fr; }
+}
