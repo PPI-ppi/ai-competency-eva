@@ -1172,3 +1172,6 @@ body .assessment-tools>.user-pill,
 body .assessment-tools>.user-avatar,
 body .profile-head-user{display:none!important}
 body .objective-head{grid-template-columns:1.3fr 1fr .75fr}
+
+.training-variant-ready { display: flex; align-items: center; gap: 5px; color: #64853c; flex-shrink: 0; }
+.training-variant-ready svg { width: 14px; height: 14px; }

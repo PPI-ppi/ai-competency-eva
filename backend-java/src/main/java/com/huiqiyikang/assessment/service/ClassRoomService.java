@@ -11,5 +11,5 @@ import com.huiqiyikang.assessment.entity.*; import com.huiqiyikang.assessment.ma
  public Optional<ClassInviteCode> findByCode(String code){return codes.findByCode(code);}
  /** 班级人数/题数只数行数，不再把整份列表读出来再 size()。 */
  public long memberCount(Long id){return members.countByClassIdAndStatus(id,"active");}
- public long questionCount(Long id){return classQuestions.countByClassIdAndStatus(id,"active");}
+ public long questionCount(Long id){return classQuestions.countActiveTestQuestions(id);}
 }

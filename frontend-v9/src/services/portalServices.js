@@ -81,7 +81,7 @@ export const teacherData = {
   myQuestions: async () => asList(await http.get("/api/questions")).map(question => ({
     ...normalizeQuestion(question), ownership: "OWN", canManageStatus: true,
   })),
-  privateQuestions: async () => asList(await http.get("/api/questions")).map(question => ({
+  privateQuestions: async () => asList(await http.get("/api/questions")).filter(question => !question.questionKind || String(question.questionKind).toLowerCase()==="test").map(question => ({
     ...normalizeQuestion(question), ownership: "OWN", canManageStatus: true,
   })),
   publicQuestions: async () => asList(await http.get("/api/questions/public")).map(question => ({
@@ -124,7 +124,7 @@ export const teacherData = {
   members: async id => asList(await http.get(`/api/classes/${id}/members`)),
   refreshInvite: id => http.post(`/api/classes/${id}/invite-code`),
   removeMember: (classId, studentId) => http.delete(`/api/classes/${classId}/members/${studentId}`),
-  classQuestions: async id => asList(await http.get(`/api/classes/${id}/questions`)).map(question => normalizeQuestion(question)),
+  classQuestions: async id => asList(await http.get(`/api/classes/${id}/question-banks/TEST/questions`)).map(question => normalizeQuestion(question)),
   addClassQuestion: (classId, questionId) => http.post(`/api/classes/${classId}/questions/${questionId}`, undefined, {timeout:180000}),
   removeClassQuestion: (classId, questionId) => http.delete(`/api/classes/${classId}/questions/${questionId}`),
   generateTrainingQuestion: (classId, questionId) => http.post(`/api/classes/${classId}/questions/${questionId}/generate-training`, undefined, {timeout:180000}),

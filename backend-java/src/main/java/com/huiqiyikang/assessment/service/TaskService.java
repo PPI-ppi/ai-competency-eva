@@ -5,5 +5,5 @@ import com.huiqiyikang.assessment.entity.*; import com.huiqiyikang.assessment.ma
  /** 批量取任务，供教师端结果列表一次性装配任务标题与班级。 */
  public List<AssessmentTask> findAllById(java.util.Collection<Long> ids){return tasks.findAllById(ids);}
  /** 只数行数，不再把整个班级题库读出来再 size()。 */
- public long classQuestionCount(Long id){return questions.countByClassIdAndStatus(id,"active");}
+ public long classQuestionCount(Long id){return questions.countActiveTestQuestions(id);}
 }
