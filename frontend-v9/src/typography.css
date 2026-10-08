@@ -56,3 +56,13 @@ body .planner-preview p { font-size:10px; }
 .teacher-bank-row .question-summary strong{font-size:13px;line-height:1.6}
 .teacher-bank-row .question-summary small,.teacher-bank-row .question-difficulty{font-size:11px;line-height:1.5}
 
+
+/* Complete question preview */
+.question-detail-dialog { font-family: "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.65; }
+.question-detail-header h2 { font-size: 22px; font-weight: 700; }
+.question-detail-header span { font-size: 11px; letter-spacing: 2px; }
+.question-detail-name { font-size: 18px; font-weight: 700; }
+.question-detail-body section h3 { font-size: 15px; font-weight: 700; }
+.question-detail-meta dt { font-size: 12px; }
+.question-detail-dialog button { font: inherit; }
+.question-detail-link { font: inherit; font-weight: 700; }
