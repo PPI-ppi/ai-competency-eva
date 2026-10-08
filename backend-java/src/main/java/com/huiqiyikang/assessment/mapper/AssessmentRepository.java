@@ -15,4 +15,21 @@ package com.huiqiyikang.assessment.mapper; import com.huiqiyikang.assessment.ent
  default List<Assessment> findByTaskIdIn(Collection<Long> taskIds){return taskIds==null||taskIds.isEmpty()?List.of():selectList(new QueryWrapper<Assessment>().in("task_id",taskIds));}
  default List<Assessment> findByStudentUserId(Long userId){return selectList(new QueryWrapper<Assessment>().eq("student_user_id",userId));}
  default List<Assessment> findByClassIdAndStatus(Long classId,String status){return selectList(new QueryWrapper<Assessment>().eq("class_id",classId).eq("status",status));}
+ /** 一次读取成员各自在当前组织的最近完成记录，不加载完整历史。 */
+ default List<Assessment> findLatestCompletedByStudents(Long classId,Collection<Long> students){
+  return students==null||students.isEmpty()?List.of():selectLatestCompletedByStudents(classId,students);
+ }
+ @org.apache.ibatis.annotations.Select("""
+  <script>
+  SELECT ranked.* FROM (
+    SELECT a.*, ROW_NUMBER() OVER (PARTITION BY student_user_id ORDER BY completed_at DESC,id DESC) AS row_rank
+    FROM assessments a WHERE class_id=#{classId}
+    AND status IN ('completed','completed_with_scoring_failure')
+    AND student_user_id IN
+    <foreach collection="students" item="student" open="(" separator="," close=")">#{student}</foreach>
+  ) ranked WHERE row_rank=1
+  </script>
+  """)
+ List<Assessment> selectLatestCompletedByStudents(@org.apache.ibatis.annotations.Param("classId") Long classId,
+     @org.apache.ibatis.annotations.Param("students") Collection<Long> students);
 }

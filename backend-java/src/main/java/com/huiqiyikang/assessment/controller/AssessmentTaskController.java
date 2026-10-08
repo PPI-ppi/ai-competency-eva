@@ -14,7 +14,7 @@ import cn.dev33.satoken.stp.StpUtil; import com.huiqiyikang.assessment.common.*;
   boolean teacher=c.getTeacherUserId().equals(uid());
   boolean student=tasks.members(uid()).stream().anyMatch(m->m.getClassId().equals(classId));
   if(!teacher&&!student)throw new BusinessException("无权访问该班级任务");
-  return ApiResponse.ok(tasks.findByClassIdAndStatus(classId,"active"));
+  return ApiResponse.ok(teacher?tasks.visibleByClass(classId):tasks.findByClassIdAndStatus(classId,"active"));
  }
  @GetMapping("/assessment-tasks/available")
  public ApiResponse<?> available(){List<AssessmentTask> result=new ArrayList<>();for(ClassMember m:tasks.members(uid()))result.addAll(tasks.findByClassIdAndStatus(m.getClassId(),"active"));return ApiResponse.ok(result);}

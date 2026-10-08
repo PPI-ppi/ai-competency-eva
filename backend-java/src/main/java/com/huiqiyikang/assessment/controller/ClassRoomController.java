@@ -192,7 +192,16 @@ public class ClassRoomController {
         for (User user : students.findAllById(rows.stream().map(ClassMember::getStudentUserId).toList())) {
             byId.put(user.getId(), user);
         }
-        return ApiResponse.ok(rows.stream().map(row -> memberView(row, byId.get(row.getStudentUserId()))).toList());
+        var summaries = abilities.memberSummaries(id, rows.stream().map(ClassMember::getStudentUserId).toList());
+        return ApiResponse.ok(rows.stream().map(row -> {
+            Map<String, Object> data = memberView(row, byId.get(row.getStudentUserId()));
+            var summary = summaries.get(row.getStudentUserId());
+            data.put("hasAssessment", summary != null);
+            data.put("abilityLevel", summary == null ? null : summary.level());
+            data.put("abilityLevelName", summary == null ? null : summary.levelName());
+            data.put("averageScore", summary == null ? null : summary.averageScore());
+            return data;
+        }).toList());
     }
 
     private Map<String, Object> memberView(ClassMember member, User user) {

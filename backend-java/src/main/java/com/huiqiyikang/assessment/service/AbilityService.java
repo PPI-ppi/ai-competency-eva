@@ -4,6 +4,11 @@ import com.huiqiyikang.assessment.profile.AbilityProfile;
 import com.huiqiyikang.assessment.profile.AbilityProfileContextLoader;
 import com.huiqiyikang.assessment.profile.AbilityProfileRegistry;
 import org.springframework.stereotype.Service;
+import com.huiqiyikang.assessment.mapper.AssessmentRepository;
+import com.huiqiyikang.assessment.domain.AbilityLevelScale;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 学生能力画像的入口。
@@ -18,10 +23,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class AbilityService {
 
+    private final AssessmentRepository assessments;
+    private final AbilityLevelScale levelScale;
     private final AbilityProfileContextLoader contextLoader;
     private final AbilityProfileRegistry registry;
 
-    public AbilityService(AbilityProfileContextLoader contextLoader, AbilityProfileRegistry registry) {
+    public AbilityService(AbilityProfileContextLoader contextLoader, AbilityProfileRegistry registry, AssessmentRepository assessments, AbilityLevelScale levelScale) {
+        this.assessments = assessments;
+        this.levelScale = levelScale;
         this.contextLoader = contextLoader;
         this.registry = registry;
     }
@@ -34,6 +43,18 @@ public class AbilityService {
     /** 按名字精确选用策略（留给未来的教师端班级分析等场景）。 */
     public AbilityProfile myAbility(Long classId, Long studentUserId, String strategyName) {
         return registry.byName(strategyName).build(contextLoader.load(classId, studentUserId));
+    }
+
+    /** 组织名单只需要最近完成记录的摘要，批量查询，不逐个加载完整画像。 */
+    public Map<Long, AbilityProfile.Summary> memberSummaries(Long classId, Collection<Long> students) {
+        Map<Long, AbilityProfile.Summary> summaries = new LinkedHashMap<>();
+        for (var assessment : assessments.findLatestCompletedByStudents(classId, students)) {
+            Double score = assessment.getAverageScore() != null ? assessment.getAverageScore() : assessment.getTotalScore();
+            var level = levelScale.resolve(assessment.getAbilityLevel(), score);
+            summaries.put(assessment.getStudentUserId(), new AbilityProfile.Summary(
+                    assessment.getId(), score, level.code(), level.name(), assessment.getCompletedAt()));
+        }
+        return summaries;
     }
 
     /** 当前生效的策略名，便于诊断接口与日志。 */

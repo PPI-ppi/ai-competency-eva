@@ -298,5 +298,15 @@
     "method": "POST",
     "path": "/api/assessments/{id}/chat",
     "source": "AssessmentController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/assessment-tasks/statistics",
+    "source": "AssessmentCompatController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/classes/{classId}/students/{studentId}/profile",
+    "source": "TeacherAbilityController.java"
   }
 ]
