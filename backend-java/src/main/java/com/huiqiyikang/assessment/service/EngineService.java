@@ -508,21 +508,15 @@ public class EngineService {
     }
 
     private Question pickQuestion(Long classId, String pointName, int difficultyLevel, Set<Long> excludeIds) {
-        // 题库分层：有classId(教师任务)->班级题库; 无classId(自主测评)->test题库
-        List<Question> pool = new ArrayList<>();
-        if (classId != null) {
-            List<ClassQuestion> cqs = classQuestions.findByClassIdAndStatus(classId, "active");
-            if (!cqs.isEmpty()) {
-                Set<Long> qids = new HashSet<>();
-                for (ClassQuestion cq : cqs) qids.add(cq.getQuestionId());
-                pool.addAll(questions.findAllById(qids));
-            }
-        }
-        if (pool.isEmpty()) {
-            pool = questions.testList();
-        }
-        if (pool.isEmpty()) {
-            pool = questions.publicList();
+        // 有组织时只用该组织的有效测试原题；训练变体不得进入正式测评。
+        List<Question> pool;
+        if (classId != null && classId > 0) {
+            List<Long> ids = classQuestions.findByClassIdAndStatus(classId, "active").stream()
+                    .map(ClassQuestion::getQuestionId).distinct().toList();
+            pool = questions.findAllById(ids).stream().filter(QuestionService::isActiveTest).toList();
+        } else {
+            pool = questions.testList().stream().filter(QuestionService::isActiveTest).toList();
+            if (pool.isEmpty()) pool = questions.publicList().stream().filter(QuestionService::isActiveTest).toList();
         }
         // 第一遍：匹配目标难度档 + 考察点
         for (Question q : pool) {

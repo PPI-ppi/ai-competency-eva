@@ -78,7 +78,7 @@ try {
       if(path==='/api/classes/managed')data=[{id:99,name:'测试组织'}];
       if(path==='/api/classes/99')data={classroom:{id:99,name:'测试组织'},inviteCode:'TEST'};
       if(path==='/api/classes/weight-support')data={supported:true,field:'pointWeights'};
-      if(path==='/api/classes/99/questions')data=fixtures.filter(q=>window.__qaAdded.includes(q.id));
+      if((path==='/api/classes/99/questions'||path==='/api/classes/99/question-banks/TEST/questions'))data=fixtures.filter(q=>window.__qaAdded.includes(q.id));
       if(path==='/api/classes/99/questions/501'&&options.method==='POST'){window.__qaAdded.push(501);data={};}
       return new Response(JSON.stringify({code:0,data}),{headers:{'Content-Type':'application/json'}});
     };

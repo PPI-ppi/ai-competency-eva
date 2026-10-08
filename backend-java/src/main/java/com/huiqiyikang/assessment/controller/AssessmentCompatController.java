@@ -237,7 +237,7 @@ public class AssessmentCompatController {
         List<ClassQuestion> cqs = classQuestionRepo.findByClassIdAndStatus(classId, "active");
         List<Question> result = cqs.stream()
                 .map(cq -> questions.findById(cq.getQuestionId()).orElse(null))
-                .filter(q -> q != null && kind.equals(q.getQuestionKind()))
+                .filter(q -> q != null && "active".equals(q.getStatus()) && ("test".equals(kind) ? QuestionService.isActiveTest(q) : kind.equals(q.getQuestionKind())))
                 .collect(Collectors.toList());
         return ApiResponse.ok(result);
     }

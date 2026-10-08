@@ -37,13 +37,14 @@ public class ClassRoomController {
     private final AbilityService abilities;
     private final ObjectMapper mapper;
     private final RateLimiter limiter;
-    private final LlmClient llm;
+    private final TrainingQuestionService trainingQuestions;
     private final SecureRandom random = new SecureRandom();
 
     public ClassRoomController(ClassRoomService c, ClassRoomService m, ClassRoomService i,
                                ClassRoomService q, QuestionService questions, AccountService s,
                                AccountService t, AbilityService abilities, ObjectMapper mapper,
-                               RateLimiter limiter, LlmClient llm) {
+                               RateLimiter limiter, TrainingQuestionService trainingQuestions) {
+        this.trainingQuestions = trainingQuestions;
         classes = c;
         members = m;
         codes = i;
@@ -54,7 +55,6 @@ public class ClassRoomController {
         this.abilities = abilities;
         this.mapper = mapper;
         this.limiter = limiter;
-        this.llm = llm;
     }
 
     public record Create(@NotBlank String name, String description, Map<String, Integer> pointWeights,
@@ -247,7 +247,7 @@ public class ClassRoomController {
             byId.put(question.getId(), question);
         }
         return ApiResponse.ok(links.stream().map(link -> byId.get(link.getQuestionId()))
-                .filter(Objects::nonNull).toList());
+                .filter(QuestionService::isActiveTest).toList());
     }
 
     @PostMapping("/{id}/questions/{questionId}")
@@ -256,7 +256,7 @@ public class ClassRoomController {
         Question question = questions.findById(questionId)
                 .orElseThrow(() -> new BusinessException("题目不存在"));
         if (!question.getOwnerUserId().equals(uid())) throw new BusinessException("只能添加自己拥有的题目");
-        if (!"active".equals(question.getStatus())) throw new BusinessException("下线题目不能加入班级");
+        if (!QuestionService.isActiveTest(question)) throw new BusinessException("只有有效测试原题可以加入组织测试题库");
         ClassQuestion link = classQuestions.findByClassIdAndQuestionId(id, questionId).orElse(null);
         if (link == null) link = new ClassQuestion(id, questionId);
         link.setStatus("active");
@@ -303,46 +303,9 @@ public class ClassRoomController {
         return ApiResponse.ok(result);
     }
 
-    /** 生成并落库一道训练题，同时建立班级关联。 */
+    /** 服务通过组织原题关联行锁保证自动生成与手动重试幂等。 */
     private Question generateTrainingQuestion(Long classId, Question question, String instruction) {
-        LlmClient.GeneratedQuestion gen = llm.generateSimilarQuestion(
-                new LlmClient.QuestionContext(question.getId(), question.getType(), question.getTitle(),
-                    question.getContent(), question.getOptions(), question.getAnswer(), question.getRubric()),
-                instruction, parseList(question.getTags()), parseList(question.getAssessmentPoints()),
-                question.getDifficulty());
-        Question train = new Question();
-        train.setOwnerUserId(question.getOwnerUserId());
-        train.setType(gen.type() == null || gen.type().isBlank() ? question.getType() : gen.type());
-        train.setTitle(gen.title());
-        train.setContent(gen.content());
-        train.setOptions(gen.options());
-        train.setAnswer(gen.answer());
-        train.setRubric(gen.rubric());
-        train.setTags(writeJson(gen.tags()));
-        train.setAssessmentPoints(writeJson(gen.assessmentPoints()));
-        train.setDifficulty(gen.difficulty() == null ? question.getDifficulty() : gen.difficulty());
-        train.setScore(100);
-        train.setVisibility("public");
-        train.setStatus("active");
-        train.setQuestionKind("training");
-        train.setSourceQuestionId(question.getId());
-        Question saved = questions.save(train);
-        ClassQuestion link = classQuestions.findByClassIdAndQuestionId(classId, saved.getId()).orElse(null);
-        if (link == null) link = new ClassQuestion(classId, saved.getId());
-        link.setStatus("active");
-        link.setRemovedAt(null);
-        classQuestions.save(link);
-        return saved;
-    }
-
-    /** 列表字段序列化：失败落空数组，不让一次坏数据阻塞整个变题流程。 */
-    private String writeJson(List<String> values) {
-        if (values == null) return "[]";
-        try {
-            return mapper.writeValueAsString(values);
-        } catch (JsonProcessingException e) {
-            return "[]";
-        }
+        return trainingQuestions.ensureVariant(classId, question, instruction);
     }
 
     /** 分类题库（测试/训练）移除题目：软删班级关联。 */
@@ -367,13 +330,6 @@ public class ClassRoomController {
         link.setRemovedAt(Instant.now());
         classQuestions.save(link);
         return ApiResponse.ok();
-    }
-
-        @SuppressWarnings("unchecked")
-    private List<String> parseList(String json) {
-        if (json == null || json.isBlank()) return List.of();
-        try { return mapper.readValue(json, List.class); }
-        catch (Exception e) { return List.of(); }
     }
 
     private Long uid() {
