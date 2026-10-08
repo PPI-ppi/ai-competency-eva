@@ -1,3 +1,4 @@
+import {parseQuestionOptions} from "../questionOptions";
 import {expandTaxonomy} from "../assessmentTaxonomy";
 import { ApiError, http } from "../api/client";
 
@@ -51,7 +52,7 @@ export const normalizeQuestion = (question, options = {}) => {
     ...question,
     tags: parseList(question.tags),
     assessmentPoints: parseList(question.assessmentPoints),
-    options: parseList(question.options),
+    options: parseQuestionOptions(question.options),
     answer: question.answer ?? question.correctAnswer ?? "",
     visibility: normalizeVisibility(question, publicCatalog),
     status: normalizeStatus(question),
