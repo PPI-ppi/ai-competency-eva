@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api")
 public class AssessmentCompatController {
 
+    private final TaskStatisticsService taskStatistics;
     private final EngineService engine;
     private final LlmClient llm;
     private final AssessmentService assessments;
@@ -43,7 +44,8 @@ public class AssessmentCompatController {
                                       AssessmentRepository assessmentRepo,
                                       ClassRoomRepository classRepo,
                                       ClassQuestionRepository classQuestionRepo,
-                                      AssessmentTaskRepository taskRepo) {
+                                      AssessmentTaskRepository taskRepo, TaskStatisticsService taskStatistics) {
+        this.taskStatistics = taskStatistics;
         this.engine = engine;
         this.llm = llm;
         this.assessments = assessments;
@@ -290,24 +292,7 @@ public class AssessmentCompatController {
 
     @GetMapping("/teacher/assessment-tasks/statistics")
     public ApiResponse<?> taskStatistics() {
-        Long tid = uid();
-        List<ClassRoom> myClasses = classRepo.findByTeacherUserId(tid);
-        Set<Long> classIds = myClasses.stream().map(ClassRoom::getId).collect(Collectors.toSet());
-        List<Assessment> allAssessments = assessmentRepo.findAll().stream()
-                .filter(a -> classIds.contains(a.getClassId()))
-                .collect(Collectors.toList());
-        long total = allAssessments.size();
-        long completed = allAssessments.stream().filter(a -> "completed".equals(a.getStatus())).count();
-        long inProgress = allAssessments.stream().filter(a -> "in_progress".equals(a.getStatus())).count();
-        long participants = allAssessments.stream().map(Assessment::getStudentUserId).distinct().count();
-        double completionRate = total == 0 ? 0 : (double) completed / total;
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("taskCount", myClasses.size());
-        data.put("ongoingCount", inProgress);
-        data.put("completedCount", completed);
-        data.put("participantCount", participants);
-        data.put("completionRate", completionRate);
-        return ApiResponse.ok(data);
+        return ApiResponse.ok(taskStatistics.forTeacher(uid()));
     }
 
     @GetMapping("/teacher/students/{studentId}/reports")
