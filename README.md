@@ -3,6 +3,10 @@
 以对话为主要形式的 AI 使用能力测评系统：教师建题、组建班级、发布测评任务，学生与
 AI 测评官多轮对话完成测评，系统自动出题、追问、评分并给出总分。
 
+## 开发分支
+
+每个独立需求使用单独分支，`integration/v9` 汇总所有修改供本地试用。详见 [分支工作约定](docs/branch-workflow.md)。默认前端为 `frontend-v9`。
+
 ## 服务器部署（Docker，推荐）
 
 服务器只要装了 Docker（含 compose 插件），**不需要装 Java、Maven、Python、Node**——
