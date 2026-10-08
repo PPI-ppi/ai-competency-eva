@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./styles.css";
+import {parseQuestionOptions,optionDisplayText} from "./questionOptions";
 import {questionPresentation,isQuestionCopied,readQuestionCopies,saveQuestionCopies} from "./questionBank";
 import {reportSortOptions,sortHistoryReports} from "./reportSorting";
 import AssessmentPointChoices from "./AssessmentPointChoices.jsx";
@@ -506,7 +507,7 @@ const conversationMessageIsUser=message=>{
 };
 
 function AgentAssessmentWorkbench({title,subtitle,questions,question,activeId,onSelect,messages,input,setInput,onSend,streaming,assistantText,finalAnswer,setFinalAnswer,onSubmitFinal,submitting,submitted,followUps=[],error,loading,finished,onFinish,onExit,preview=false,questionIndex=0,onSubmitOption,artifacts=[],onUploadFile,uploading=false}){
-  const options=Array.isArray(question?.options)?question.options:safeList(question?.options);
+  const options=parseQuestionOptions(question?.options);
   // 客观题（有选项且非对话/实操）：点击选项即自动提交答案并进入下一题
   const autoSubmitOption=options.length>0&&question?.type!=="DIALOGUE"&&question?.type!=="PRACTICAL";
   // 客观题模式：右栏只保留题目与选项（隐藏对话模型与提交面板）
@@ -539,7 +540,7 @@ function AgentAssessmentWorkbench({title,subtitle,questions,question,activeId,on
       {error&&<p className="agent-workbench-error">{error}</p>}
       {loading?<div className="agent-workbench-empty">正在加载真实题目与会话记录…</div>:finished?<div className="agent-workbench-empty"><FileCheck2/><h2>本次题目已经完成</h2><button onClick={onFinish}>生成报告</button></div>:<>
         <section className="agent-question-detail"><small>作答要求：在对话中作答或提交整理后的方案，Agent 根据回答追问或进入下一题</small><h2>{questionText}</h2>{question?.description&&<p>{cleanConversationText(question.description)}</p>}</section>
-        {options.length>0&&<div className="agent-option-list">{options.map((option,index)=><button className={finalAnswer===option?"selected":""} disabled={streaming||submitting} onClick={()=>{if(autoSubmitOption){onSubmitOption?onSubmitOption(option):setFinalAnswer(option)}else{setFinalAnswer(option)}}} key={option}><i>{String.fromCharCode(65+index)}</i>{option}</button>)}</div>}
+        {options.length>0&&<div className="agent-option-list">{options.map((option,index)=><button className={finalAnswer===option?"selected":""} disabled={streaming||submitting} onClick={()=>{if(autoSubmitOption){onSubmitOption?onSubmitOption(option):setFinalAnswer(option)}else{setFinalAnswer(option)}}} key={`${index}-${option}`}><i>{String.fromCharCode(65+index)}</i>{optionDisplayText(option,index)}</button>)}</div>}
         {!isObjective&&!isPractical&&<section className="agent-chat-panel"><header><span><Bot/>对话模型</span><small>已连接 · 对话过程自动保存</small></header><div className="agent-chat-stream">{visibleMessages.length?visibleMessages.map((message,index)=>{const isUser=conversationMessageIsUser(message);return <article className={isUser?"user":"assistant"} key={message.id||index}>{!isUser&&<Bot/>}<p>{cleanConversationText(conversationMessageContent(message))}</p>{isUser&&<UserRound/>}</article>}):<div className="agent-chat-placeholder">在这里提交回答，Agent 会根据你的作答继续提问。</div>}{assistantText&&<article className="assistant"><Bot/><p>{cleanConversationText(assistantText)}</p></article>}</div><div className="agent-chat-input"><textarea value={input} onChange={event=>setInput(event.target.value)} placeholder="向对话模型提问…"/><button disabled={streaming||!input.trim()} onClick={onSend}>{streaming?"回复中…":"发送"}</button></div></section>}
         {String(question?.type||"").toUpperCase()==="PRACTICAL"&&<section className="agent-artifact-panel"><header><FileCheck2/>成果附件</header><label className="agent-artifact-upload"><input type="file" disabled={uploading||submitting||streaming} onChange={event=>{const file=event.target.files?.[0];if(file)onUploadFile?.(file);event.target.value=""}}/><span>{uploading?"上传中…":"点击选择成果文件上传"}</span></label>{artifacts.length>0&&<div className="agent-artifact-list">{artifacts.map((item,index)=><p key={item.artifactId||index}><FileCheck2/>{item.fileName}</p>)}</div>}</section>}
         {!isObjective&&<section className="agent-final-panel"><header><FileCheck2/><b>提交最终方案</b></header><textarea value={finalAnswer} onChange={event=>setFinalAnswer(event.target.value)} placeholder="将你与模型对话后整理出的最终答案或技术方案填写在这里…"/><footer><span>提交后，Agent 将根据方案追问或进入下一题。</span><button disabled={submitting||streaming||!finalAnswer.trim()} onClick={onSubmitFinal}>{submitting?"提交中…":"提交方案"}</button></footer></section>}
