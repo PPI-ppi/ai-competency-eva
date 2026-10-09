@@ -27,7 +27,7 @@ public class AbilityLevelScale {
 
     public static final Level EMPTY = new Level("L0", "等待启程");
 
-    private static final String DEFAULT_SPEC =
+    public static final String DEFAULT_SPEC =
             "90:L5:创新应用者,80:L4:人机协同专家,70:L3:应用进阶者,60:L2:工具使用者,0:L1:基础认知者";
 
     private final List<Threshold> thresholds;

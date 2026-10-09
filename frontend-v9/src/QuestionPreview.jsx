@@ -1,0 +1,11 @@
+import React,{useEffect,useState} from "react";
+import {X} from "lucide-react";
+import {http} from "./api/client";
+import {normalizeQuestion} from "./services/portalServices";
+const display=value=>{if(value==null||value==="")return "未提供";if(typeof value==="object")return JSON.stringify(value,null,2);try{return JSON.stringify(JSON.parse(value),null,2)}catch{return String(value)}};
+export default function QuestionPreview({question,onClose}){
+ const [data,setData]=useState(null),[error,setError]=useState(""),[retry,setRetry]=useState(0);
+ useEffect(()=>{let alive=true;setData(null);setError("");http.get(`/api/questions/${question.id||question.questionId}`).then(row=>{if(alive)setData(normalizeQuestion(row))}).catch(e=>{if(alive)setError(e.message||"题目加载失败")});return()=>{alive=false}},[question.id,question.questionId,retry]);
+ useEffect(()=>{const listener=e=>{if(e.key==="Escape")onClose()};window.addEventListener("keydown",listener);return()=>window.removeEventListener("keydown",listener)},[onClose]);
+ return <div className="question-preview-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><section className="question-preview-dialog" role="dialog" aria-modal="true" aria-label="完整题目预览"><header><h2>完整题目预览</h2><button aria-label="关闭题目预览" onClick={onClose}><X/></button></header>{error?<div role="alert"><p>{error}</p><button onClick={()=>setRetry(v=>v+1)}>重新加载</button></div>:!data?<p role="status">正在加载完整题目…</p>:<><h3>{data.title||"未命名题目"}</h3><dl><div><dt>题型</dt><dd>{{SINGLE:"单选题",SINGLE_CHOICE:"单选题",TRUE_FALSE:"判断题",DIALOGUE:"对话题",PRACTICAL:"实操题"}[data.type]||data.type}</dd></div><div><dt>难度</dt><dd>{data.difficulty?`L${data.difficulty}`:"未提供"}</dd></div><div><dt>维度</dt><dd>{data.tags.join("、")||"未提供"}</dd></div><div><dt>考察点</dt><dd>{data.assessmentPoints.join("、")||"未提供"}</dd></div></dl><h3>题目内容</h3><pre>{display(data.content)}</pre>{data.options.length>0&&<><h3>选项</h3><ol>{data.options.map((option,i)=><li key={i}>{display(option)}</li>)}</ol></>}{["SINGLE","SINGLE_CHOICE","TRUE_FALSE"].includes(data.type)?<><h3>正确答案</h3><pre>{display(data.answer)}</pre></>:<><h3>评分标准</h3><pre>{display(data.rubric)}</pre></>}{data.artifactRequirement&&<><h3>提交要求</h3><pre>{display(data.artifactRequirement)}</pre></>}</>}<footer><button onClick={onClose}>返回选题</button></footer></section></div>
+}

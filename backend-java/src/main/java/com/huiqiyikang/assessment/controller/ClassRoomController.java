@@ -38,12 +38,14 @@ public class ClassRoomController {
     private final ObjectMapper mapper;
     private final RateLimiter limiter;
     private final TrainingQuestionService trainingQuestions;
+    private final GrowthService growth;
     private final SecureRandom random = new SecureRandom();
 
     public ClassRoomController(ClassRoomService c, ClassRoomService m, ClassRoomService i,
                                ClassRoomService q, QuestionService questions, AccountService s,
                                AccountService t, AbilityService abilities, ObjectMapper mapper,
-                               RateLimiter limiter, TrainingQuestionService trainingQuestions) {
+                               RateLimiter limiter, TrainingQuestionService trainingQuestions,
+                               GrowthService growth) {
         this.trainingQuestions = trainingQuestions;
         classes = c;
         members = m;
@@ -55,6 +57,7 @@ public class ClassRoomController {
         this.abilities = abilities;
         this.mapper = mapper;
         this.limiter = limiter;
+        this.growth = growth;
     }
 
     public record Create(@NotBlank String name, String description, Map<String, Integer> pointWeights,
@@ -107,7 +110,9 @@ public class ClassRoomController {
     @GetMapping("/managed")
     public ApiResponse<?> managed() {
         if (!teachers.existsByUserId(uid())) throw new BusinessException("当前账号不是教师");
-        return ApiResponse.ok(classes.findByTeacherUserId(uid()));
+        // 个人组织（学生自建考察点配置）不进入教师管理列表
+        return ApiResponse.ok(classes.findByTeacherUserId(uid()).stream()
+                .filter(c -> c.getPersonalOwnerId() == null).toList());
     }
 
     @GetMapping("/joined")
@@ -128,7 +133,10 @@ public class ClassRoomController {
                 .map(member -> "active".equals(member.getStatus())).orElse(false)) {
             throw new BusinessException("不是该班级有效成员", HttpStatus.FORBIDDEN);
         }
-        return ApiResponse.ok(abilities.myAbility(id, uid()));
+        // 组织总体情况统计：个人能力画像 + 组织平均（10.8.3 增强）
+        Map<String, Object> result = growth.profile(id, uid());
+        result.put("organizationAverage", growth.average(id));
+        return ApiResponse.ok(result);
     }
 
     @GetMapping("/{id}")
@@ -357,8 +365,15 @@ public class ClassRoomController {
             if (w < 0 || w > 10) {
                 throw new BusinessException("权重必须是 0-10 的整数：" + point);
             }
-            AiAssessmentPoint knownPoint = AiAssessmentPoint.byLabel(point.trim())
-                    .orElseThrow(() -> new BusinessException("考察点不存在：" + point));
+            AiAssessmentPoint knownPoint = AiAssessmentPoint.byLabel(point.trim()).orElse(null);
+            if (knownPoint == null) {
+                // 兼容“AI工具使用-场景”双层考察点（如“工具使用能力-文本写作”）
+                try {
+                    com.huiqiyikang.assessment.domain.AiTaxonomy.dimensionOf(point.trim());
+                } catch (IllegalArgumentException e) {
+                    throw new BusinessException("考察点不存在：" + point);
+                }
+            }
         }
     }
 

@@ -300,17 +300,46 @@
     "source": "AssessmentController.java"
   },
   {
-    "method": "GET",
-    "path": "/api/teacher/assessment-tasks/statistics",
-    "source": "AssessmentCompatController.java"
-  },
-  {
-    "method": "GET",
-    "path": "/api/teacher/classes/{classId}/students/{studentId}/profile",
-    "source": "TeacherAbilityController.java"
+    "method": "POST",
+    "path": "/api/classes/personal"
   },
   {
     "method": "POST",
     "path": "/api/training/start"
+  },
+  {
+    "method": "GET",
+    "path": "/api/training/advice"
+  },
+  {
+    "method": "GET",
+    "path": "/api/reports/{id}/snapshot"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/classes/{classId}/students/{studentId}/profile"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/classes/{classId}/overview",
+    "source": "OrganizationOverviewController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/teacher/students/{studentId}/remedial-tasks",
+    "source": "OrganizationOverviewController.java"
+  },
+  {
+    "method": "GET",
+    "path": "/api/teacher/assessment-tasks/statistics",
+    "source": "OrganizationOverviewController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/assessment-tasks/{id}/end"
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/assessment-tasks/{id}"
   }
 ]

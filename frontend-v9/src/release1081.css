@@ -1,0 +1,51 @@
+/* 10.8.1: common page geometry and report hierarchy; typography stays centralized. */
+body .ability-table-row>ol{display:flex;flex-direction:column;justify-content:space-evenly;align-items:center;padding:0 20px;text-align:center;list-style-position:inside}
+body .ability-table-row>ol>li{width:100%;padding-left:0}
+body .ability-table-row>ol>li+li{margin-top:0}
+body .training-bottom-v2.training-advice-only>.training-advice-note{min-height:0;padding-bottom:96px}
+body .training-advice-only .training-advice-note>p.training-advice-text{display:block!important;grid-template-columns:none!important;width:100%;min-width:0;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:anywhere}
+body .student-home-shell .dash-main{width:100%;max-width:none}
+body .student-home-shell .dash-main>.design-page,body .student-home-shell .dash-main>.standard-page{padding-left:clamp(18px,3vw,46px);padding-right:clamp(18px,3vw,46px)}
+body .student-home-shell .student-home-v2,body .student-home-v2,body .design-page,body .standard-page{padding:30px clamp(18px,3vw,46px) 70px;width:100%;box-sizing:border-box}
+body .student-home-shell .student-home-v2>*,body .student-home-v2>*,body .design-page>*,body .standard-page>*{width:min(1180px,100%);max-width:1180px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+body .report-compare-v2{display:block;width:min(1180px,100%)}
+body .report-compare-v2>div{width:100%;box-sizing:border-box}
+body .report-snapshot-page{padding:30px clamp(18px,3vw,46px) 70px;background-color:#f9fbfd}
+body .report-snapshot-page>*,body .report-snapshot-page .snapshot-score-advice,body .report-snapshot-page .snapshot-dimension-analysis,body .report-snapshot-page .snapshot-radar-change,body .report-snapshot-page .snapshot-skill-tree{width:min(1180px,100%);max-width:1180px;margin-left:auto;margin-right:auto;box-sizing:border-box}
+body .report-snapshot-page>header{margin-top:-30px;background:rgba(249,251,253,.97);border-bottom:1px solid #dce5ec}
+body .snapshot-score-advice{display:grid;grid-template-columns:240px minmax(0,1fr);gap:20px;align-items:stretch}
+body .snapshot-score-advice .snapshot-score-bar{background:#eaf3ff;border:1px solid #c9def7;border-radius:20px;color:#275b93;display:flex;flex-direction:column;justify-content:center;gap:16px;padding:26px}
+body .snapshot-score-bar strong,body .snapshot-score-bar small{color:#275b93}
+body .snapshot-score-bar>b{background:#d5e6fb;color:#275b93}
+body .snapshot-score-advice>article:last-child{background:#fff7e8;border-color:#f4d8a9;padding:26px}
+body .snapshot-score-advice>article:last-child p{margin-bottom:0}
+body .snapshot-dimension-analysis>div{gap:14px}
+body .snapshot-dimension-analysis article{border:1px solid #d7e4f1;border-left:5px solid #438aca;background:#f2f7fd}
+body .snapshot-dimension-analysis article:nth-child(3n+2){background:#fff5e9;border-color:#f3d7ad;border-left-color:#e79d36}
+body .snapshot-dimension-analysis article:nth-child(3n){background:#fff1ed;border-color:#f1d3c9;border-left-color:#d97c5c}
+body .snapshot-dimension-analysis article strong{color:#32679d}
+body .snapshot-dimension-analysis article:nth-child(3n+2) strong{color:#ad721d}
+body .snapshot-dimension-analysis article:nth-child(3n) strong{color:#a45e47}
+body .snapshot-radar-change>div{background:#f2f7fd}
+body .snapshot-radar-change aside{background:#fff7e9}
+body .snapshot-radar-change aside b.up{color:#267aa7}
+body .snapshot-radar-change aside b.down{color:#c56c4a}
+body .skill-tree-branches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+body .skill-branch{margin:0;border-color:#dae3ec;background:#fbfdff}
+body .skill-branch:before{display:none}
+body .skill-branch.tools-branch{grid-column:1/-1}
+body .tool-parent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+body .tool-parent-grid>article{border:1px solid #d9e6ef;border-radius:14px;padding:14px;background:#fff}
+body .tool-parent-grid>article>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+body .skill-branch span.mastered,body .skill-branch span.mastered i{background:#e9f2ff;color:#326aa2;border-color:#bfd7f0}
+body .skill-branch span.learning,body .skill-branch span.learning i{background:#fff4df;color:#a66c1f;border-color:#f1d59e}
+body .skill-status-summary i.mastered,body .skill-tree-board footer span.mastered{background:#438aca}
+body .report-skill-v2>aside p i.mastered{background:#438aca;box-shadow:0 0 0 4px #e5effb}
+body .skill-status-summary i.learning{background:#e79d36}
+body .personal-organization-dialog{background:#fff;width:min(1060px,94vw);max-height:90vh;overflow:auto;border-radius:22px;padding:26px;box-sizing:border-box}
+body .personal-organization-dialog footer{display:flex;justify-content:flex-end;gap:12px;position:sticky;bottom:-26px;background:#fff;padding:18px 0}
+body .personal-organization-dialog button{border:1px solid #e7cf9b;border-radius:12px;padding:12px 20px;background:#fff3d9}
+body button:disabled{opacity:.5;cursor:not-allowed}
+body .planner-quantity button{padding:10px 18px;margin-right:8px;border:1px solid #e8d6b9;border-radius:12px;background:#fff}
+body .planner-quantity button.selected{background:#fff0c4;border-color:#e4ad3a}
+@media(max-width:800px){body .snapshot-score-advice,body .skill-tree-branches,body .tool-parent-grid{grid-template-columns:1fr}body .skill-branch.tools-branch{grid-column:auto}body .report-snapshot-page>header{grid-template-columns:1fr}body .overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}

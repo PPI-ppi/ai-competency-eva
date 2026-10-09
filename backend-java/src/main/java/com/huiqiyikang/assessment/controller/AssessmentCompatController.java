@@ -210,12 +210,8 @@ public class AssessmentCompatController {
         return ApiResponse.ok(rows);
     }
 
-    @GetMapping("/reports/{id}/snapshot")
-    public ApiResponse<?> snapshot(@PathVariable Long id) {
-        owned(id);
-        try { return ApiResponse.ok(agent.result(id, uid())); }
-        catch (BusinessException e) { return ApiResponse.ok(null); }
-    }
+    // 注意：/reports/{id}/snapshot 由 StudentGrowthController 提供（10.8.3 报告快照 freeze 版），
+    // 此处不重复映射，避免 Spring 双映射启动冲突。
 
     @PostMapping("/assessments/{id}/learning-advice")
     public ApiResponse<?> learningAdvice(@PathVariable Long id) {
@@ -290,11 +286,6 @@ public class AssessmentCompatController {
     }
     // ==================== 2.6 教师统计/补救 ====================
 
-    @GetMapping("/teacher/assessment-tasks/statistics")
-    public ApiResponse<?> taskStatistics() {
-        return ApiResponse.ok(taskStatistics.forTeacher(uid()));
-    }
-
     @GetMapping("/teacher/students/{studentId}/reports")
     public ApiResponse<?> studentReports(@PathVariable Long studentId) {
         Long tid = uid();
@@ -306,22 +297,9 @@ public class AssessmentCompatController {
         return ApiResponse.ok(rows);
     }
 
-    @PostMapping("/teacher/students/{studentId}/remedial-tasks")
-    public ApiResponse<?> createRemedialTask(@PathVariable Long studentId,
-                                             @RequestBody Map<String, Object> body) {
-        // 简化：直接返回成功，后续建表
-        return ApiResponse.ok(Map.of("created", true, "studentId", studentId));
-    }
-
-    @GetMapping("/classes/{id}/assessment-results/average")
-    public ApiResponse<?> classAverage(@PathVariable Long id) {
-        List<Assessment> completed = assessmentRepo.findByClassIdAndStatus(id, "completed");
-        double avg = completed.stream()
-                .filter(a -> a.getTotalScore() != null)
-                .mapToDouble(Assessment::getTotalScore)
-                .average().orElse(0.0);
-        return ApiResponse.ok(Map.of("averageScore", avg, "count", completed.size()));
-    }
+    // 注意：/teacher/assessment-tasks/statistics、/teacher/students/{studentId}/remedial-tasks、
+    // /classes/{id}/assessment-results/average 由 OrganizationOverviewController / StudentGrowthController 提供
+    //（10.8.3 真实统计与补救实现），此处不重复映射，避免 Spring 双映射启动冲突。
 
     // ==================== 内部评分逻辑 ====================
 

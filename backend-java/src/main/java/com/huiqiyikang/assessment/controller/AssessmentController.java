@@ -11,6 +11,8 @@ import com.huiqiyikang.assessment.service.AssessmentAgentService;
 import com.huiqiyikang.assessment.service.AssessmentService;
 import com.huiqiyikang.assessment.service.ClassRoomService;
 import com.huiqiyikang.assessment.service.TaskService;
+import com.huiqiyikang.assessment.service.TaskAssignmentService;
+import com.huiqiyikang.assessment.service.GrowthService;
 import com.huiqiyikang.assessment.service.TrainingConfiguration;
 import cn.dev33.satoken.stp.StpUtil;
 import jakarta.servlet.http.HttpServletResponse;
@@ -39,14 +41,18 @@ public class AssessmentController {
     private final ClassRoomService members;
     private final AssessmentAgentService agent;
     private final ObjectMapper mapper;
+    private final TaskAssignmentService assignments;
+    private final GrowthService growth;
 
     public AssessmentController(AssessmentService assessments, TaskService tasks, ClassRoomService members,
-            AssessmentAgentService agent, ObjectMapper mapper) {
+            AssessmentAgentService agent, ObjectMapper mapper, TaskAssignmentService assignments, GrowthService growth) {
         this.assessments = assessments;
         this.tasks = tasks;
         this.members = members;
         this.agent = agent;
         this.mapper = mapper;
+        this.assignments = assignments;
+        this.growth = growth;
     }
 
     /**
@@ -71,11 +77,12 @@ public class AssessmentController {
      * 同一个任务一人一次，重复调用返回已有测评（幂等）。
      */
     @PostMapping("/assessment-tasks/{taskId}/start")
+    @org.springframework.transaction.annotation.Transactional
     public ApiResponse<?> start(@PathVariable Long taskId) {
         Long uid = uid();
-        AssessmentTask task = tasks.findById(taskId).orElseThrow(() -> new BusinessException("测评任务不存在"));
-        if (!members.findByClassIdAndStudentUserId(task.getClassId(), uid).map(x -> "active".equals(x.getStatus())).orElse(false))
-            throw new BusinessException("不是该班级有效成员");
+        AssessmentTask task = assignments.lockStart(taskId);
+        if (task == null) throw new BusinessException("测评任务不存在");
+        assignments.checkStudent(task, uid);
         // 一人一次：进行中的记录直接复用（断点续做），已完成的拒绝重复参加。
         Optional<Assessment> existing = assessments.findByTaskIdAndStudentUserId(taskId, uid);
         if (existing.isPresent()) {
@@ -83,15 +90,21 @@ public class AssessmentController {
             if (!"in_progress".equals(a.getStatus()))
                 throw new BusinessException("该测评任务已完成，不能重复参加", HttpStatus.CONFLICT);
             a.setTaskTitle(task.getTitle());
+            a.setDescription(task.getDescription());
             return ApiResponse.ok(a);
         }
+        if (assignments.ended(task)) throw new BusinessException("任务已结束，不能开始作答");
         Assessment a = new Assessment(taskId, task.getClassId(), uid);
+        a.setPointWeights(task.getPointWeights());
+        a.setReportType("TASK");
+        a.setBeforeProfileJson(growth.encode(growth.profile(task.getClassId(), uid)));
         a.setDimensions(task.getDimensions());
         a.setAssessmentPoints(task.getAssessmentPoints());
         // 任务型测评的题量跟随任务，前端进度条按它显示「第 x / y 题」。
         a.setQuestionCount(task.getQuestionCount() == null ? 0 : task.getQuestionCount());
         // 任务已经查出来了，顺手带上标题，前端就不用拿 task_id 当名字显示。
         a.setTaskTitle(task.getTitle());
+        a.setDescription(task.getDescription());
         return ApiResponse.ok(assessments.save(a));
     }
 
@@ -113,6 +126,7 @@ public class AssessmentController {
             throw new BusinessException(e.getMessage());
         }
         Assessment a = new Assessment(classId, uid);
+        a.setBeforeProfileJson(growth.encode(growth.profile(classId, uid)));
         a.setDimensions(json(dimensions));
         a.setAssessmentPoints(json(points));
         // 题量由学生自己选；不选就是不限题量，与改造前行为一致。
@@ -183,7 +197,10 @@ public class AssessmentController {
         for (AssessmentTask task : tasks.findAllById(taskIds)) byId.put(task.getId(), task);
         for (Assessment row : rows) {
             AssessmentTask task = row.getTaskId() == null ? null : byId.get(row.getTaskId());
-            if (task != null) row.setTaskTitle(task.getTitle());
+            if (task != null) {
+                row.setTaskTitle(task.getTitle());
+                row.setDescription(task.getDescription());
+            }
         }
     }
 
@@ -223,11 +240,13 @@ public class AssessmentController {
         payload.put("student_user_id", uid());
         try {
             agent.chatStream(id, uid(), payload, out);
-        } catch (Exception e) {
+        } catch (BusinessException e) {
             // SSE 错误必须保持事件格式，即使前面的题目事件已经写出。
-            out.write(("event: error\ndata: " + mapper.writeValueAsString(Map.of("message", e.getMessage() == null ? "测评请求失败" : e.getMessage())) + "\n\n")
-                    .getBytes(StandardCharsets.UTF_8));
-            out.flush();
+            if (!response.isCommitted()) {
+                out.write(("event: error\ndata: " + mapper.writeValueAsString(Map.of("message", e.getMessage() == null ? "测评请求失败" : e.getMessage())) + "\n\n")
+                        .getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            }
         }
     }
 

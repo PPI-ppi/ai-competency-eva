@@ -66,3 +66,5 @@ body .planner-preview p { font-size:10px; }
 .question-detail-meta dt { font-size: 12px; }
 .question-detail-dialog button { font: inherit; }
 .question-detail-link { font: inherit; font-weight: 700; }
+
+body .question-preview-dialog pre{font-family:"Microsoft YaHei", sans-serif}
