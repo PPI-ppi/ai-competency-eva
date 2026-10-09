@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./styles.css";
+import FollowupAnswerPanel from "./FollowupAnswerPanel.jsx";
 import {questionPresentation,isQuestionCopied,readQuestionCopies,saveQuestionCopies} from "./questionBank";
 import {reportSortOptions,sortHistoryReports} from "./reportSorting";
 import AssessmentPointChoices from "./AssessmentPointChoices.jsx";
@@ -504,7 +505,8 @@ const conversationMessageIsUser=message=>{
   return false;
 };
 
-function AgentAssessmentWorkbench({title,subtitle,questions,question,activeId,onSelect,messages,input,setInput,onSend,streaming,assistantText,finalAnswer,setFinalAnswer,onSubmitFinal,submitting,submitted,followUps=[],error,loading,finished,onFinish,onExit,preview=false,questionIndex=0,onSubmitOption,artifacts=[],onUploadFile,uploading=false}){
+function AgentAssessmentWorkbench({title,subtitle,questions,question,activeId,onSelect,messages,input,setInput,onSend,streaming,assistantText,finalAnswer,setFinalAnswer,onSubmitFinal,submitting,submitted,followUps=[],onSubmitFollowup,error,loading,finished,onFinish,onExit,preview=false,questionIndex=0,onSubmitOption,artifacts=[],onUploadFile,uploading=false}){
+  const awaitingFollowup=question?.awaitingFollowup??(followUps.length>0&&!followUps[followUps.length-1]?.answer&&!question?.answered);
   const options=Array.isArray(question?.options)?question.options:safeList(question?.options);
   // 客观题（有选项且非对话/实操）：点击选项即自动提交答案并进入下一题
   const autoSubmitOption=options.length>0&&question?.type!=="DIALOGUE"&&question?.type!=="PRACTICAL";
@@ -531,17 +533,18 @@ function AgentAssessmentWorkbench({title,subtitle,questions,question,activeId,on
       <section className="agent-workbench-brief"><b>{title}</b><p>{subtitle}</p><small>共 {total} 题 · 对话与最终方案由平台记录</small></section>
       <nav className="agent-question-list">{visibleQuestions.map((item,index)=>{const id=assessmentQuestionId(item)||index;const selected=String(id)===String(activeId??assessmentQuestionId(question));const done=Boolean(item.completed||item.answered||item.finalAnswer||item.submitted);return <button className={`${selected?"active":""} ${done?"done":""}`} onClick={()=>onSelect(item,index)} key={id}><span>{done?<Check/>:index+1}</span><div><small>{assessmentQuestionType(item)}</small><b>{assessmentQuestionText(item)}</b></div><ChevronRight/></button>})}</nav>
       {submitted&&<section className="agent-timeline-card submission"><small>已提交的最终方案</small><p>{submitted}</p></section>}
-      {followUps.map((item,index)=><section className="agent-timeline-card follow-up" key={item.id||index}><small>Agent 追问</small><p>{item.content||item.text||item.question||item}</p></section>)}
+      {followUps.map((item,index)=><section className="agent-timeline-card follow-up" key={item.id||index}><small>Agent 追问</small><p>{item.content||item.text||item.question||item}</p>{item.answer&&<><small>我的追问回答</small><p>{item.answer}</p></>}</section>)}
+      {awaitingFollowup&&onSubmitFollowup&&!finished&&!loading&&<FollowupAnswerPanel key={`${activeId}-${followUps.at(-1)?.id||followUps.length}`} disabled={streaming||submitting} onSubmit={onSubmitFollowup}/>}
     </aside>
     <section className="agent-workbench-right">
       <header><span>{assessmentQuestionType(question)}</span></header>
       {error&&<p className="agent-workbench-error">{error}</p>}
       {loading?<div className="agent-workbench-empty">正在加载真实题目与会话记录…</div>:finished?<div className="agent-workbench-empty"><FileCheck2/><h2>本次题目已经完成</h2><button onClick={onFinish}>生成报告</button></div>:<>
         <section className="agent-question-detail"><small>作答要求：在对话中作答或提交整理后的方案，Agent 根据回答追问或进入下一题</small><h2>{questionText}</h2>{question?.description&&<p>{cleanConversationText(question.description)}</p>}</section>
-        {options.length>0&&<div className="agent-option-list">{options.map((option,index)=><button className={finalAnswer===option?"selected":""} disabled={streaming||submitting} onClick={()=>{if(autoSubmitOption){onSubmitOption?onSubmitOption(option):setFinalAnswer(option)}else{setFinalAnswer(option)}}} key={option}><i>{String.fromCharCode(65+index)}</i>{option}</button>)}</div>}
+        {options.length>0&&<div className="agent-option-list">{options.map((option,index)=><button className={finalAnswer===option?"selected":""} disabled={streaming||submitting||awaitingFollowup} onClick={()=>{if(autoSubmitOption){onSubmitOption?onSubmitOption(option):setFinalAnswer(option)}else{setFinalAnswer(option)}}} key={option}><i>{String.fromCharCode(65+index)}</i>{option}</button>)}</div>}
         {!isObjective&&!isPractical&&<section className="agent-chat-panel"><header><span><Bot/>对话模型</span><small>已连接 · 对话过程自动保存</small></header><div className="agent-chat-stream">{visibleMessages.length?visibleMessages.map((message,index)=>{const isUser=conversationMessageIsUser(message);return <article className={isUser?"user":"assistant"} key={message.id||index}>{!isUser&&<Bot/>}<p>{cleanConversationText(conversationMessageContent(message))}</p>{isUser&&<UserRound/>}</article>}):<div className="agent-chat-placeholder">在这里提交回答，Agent 会根据你的作答继续提问。</div>}{assistantText&&<article className="assistant"><Bot/><p>{cleanConversationText(assistantText)}</p></article>}</div><div className="agent-chat-input"><textarea value={input} onChange={event=>setInput(event.target.value)} placeholder="向对话模型提问…"/><button disabled={streaming||!input.trim()} onClick={onSend}>{streaming?"回复中…":"发送"}</button></div></section>}
         {String(question?.type||"").toUpperCase()==="PRACTICAL"&&<section className="agent-artifact-panel"><header><FileCheck2/>成果附件</header><label className="agent-artifact-upload"><input type="file" disabled={uploading||submitting||streaming} onChange={event=>{const file=event.target.files?.[0];if(file)onUploadFile?.(file);event.target.value=""}}/><span>{uploading?"上传中…":"点击选择成果文件上传"}</span></label>{artifacts.length>0&&<div className="agent-artifact-list">{artifacts.map((item,index)=><p key={item.artifactId||index}><FileCheck2/>{item.fileName}</p>)}</div>}</section>}
-        {!isObjective&&<section className="agent-final-panel"><header><FileCheck2/><b>提交最终方案</b></header><textarea value={finalAnswer} onChange={event=>setFinalAnswer(event.target.value)} placeholder="将你与模型对话后整理出的最终答案或技术方案填写在这里…"/><footer><span>提交后，Agent 将根据方案追问或进入下一题。</span><button disabled={submitting||streaming||!finalAnswer.trim()} onClick={onSubmitFinal}>{submitting?"提交中…":"提交方案"}</button></footer></section>}
+        {!isObjective&&!awaitingFollowup&&<section className="agent-final-panel"><header><FileCheck2/><b>提交最终方案</b></header><textarea value={finalAnswer} onChange={event=>setFinalAnswer(event.target.value)} placeholder="将你与模型对话后整理出的最终答案或技术方案填写在这里…"/><footer><span>提交后，Agent 将根据方案追问或进入下一题。</span><button disabled={submitting||streaming||!finalAnswer.trim()} onClick={onSubmitFinal}>{submitting?"提交中…":"提交方案"}</button></footer></section>}
       </>}
     </section>
   </main>;
@@ -550,7 +553,7 @@ function AgentAssessmentWorkbench({title,subtitle,questions,question,activeId,on
 function LiveAssessmentSession({task,onExit,onReportClose,notify}){
   const [state,setState]=useState(null),[input,setInput]=useState(""),[streaming,setStreaming]=useState(false),[assistantText,setAssistantText]=useState(""),[finalAnswer,setFinalAnswer]=useState(""),[submitted,setSubmitted]=useState(""),[submitting,setSubmitting]=useState(false),[activeQuestion,setActiveQuestion]=useState(null),[report,setReport]=useState(null),[error,setError]=useState(""),[artifacts,setArtifacts]=useState([]),[uploading,setUploading]=useState(false);
   const assessmentId=task.assessmentId||task.id;
-  const applyConversation=input=>{const data=normalizeConversation(input);setState(current=>({...current,...data}));const current=data?.currentQuestion||data?.question;setActiveQuestion(current||null);setSubmitted(previous=>current?.finalAnswer||data?.finalAnswer||previous)};
+  const applyConversation=input=>{const data=normalizeConversation(input);setState(current=>({...current,...data}));const current=data?.currentQuestion||data?.question;setActiveQuestion(current||null);setSubmitted(current?.finalAnswer||data?.finalAnswer||"")};
   const load=async()=>{try{setError("");let data;try{data=await assessmentApi.conversation(assessmentId)}catch(err){if(err?.status!==404)throw err;data=await assessmentApi.conversation(assessmentId)}data=normalizeConversation(data||{});applyConversation(data);if(!data?.currentQuestion&&!data?.question&&!data?.finished){setStreaming(true);setAssistantText("");await sendAssessmentChat(assessmentId,"",{onDelta:delta=>setAssistantText(current=>current+delta),onState:update=>applyConversation(update||{}),onDone:async update=>{if(update&&typeof update==="object")applyConversation(update);try{applyConversation(await assessmentApi.conversation(assessmentId))}catch{}},onError:err=>setError(err?.message||"第一题加载失败")});setStreaming(false)}}catch(err){setStreaming(false);setError(err?.message||"测评会话加载失败")}};
   useEffect(()=>{load()},[assessmentId]);
   const currentQuestion=state?.currentQuestion||state?.question;
@@ -560,7 +563,7 @@ function LiveAssessmentSession({task,onExit,onReportClose,notify}){
   useEffect(()=>{setArtifacts([])},[activeId]);
   const currentId=assessmentQuestionId(currentQuestion);
   const messages=question?.messages||(String(activeId)===String(currentId)?state?.messages||state?.conversation||[]:[]);
-  const followUps=question?.followUps||state?.followUps||state?.followups||[];
+  const followUps=question?.followUps||(String(activeId)===String(currentId)?state?.followUps||state?.followups||[]:[]);
   const selectQuestion=async(item,index)=>{const id=assessmentQuestionId(item);setActiveQuestion(item);setFinalAnswer(item.finalAnswer||"");setSubmitted(item.finalAnswer||"");setError("");if(String(id)===String(currentId))return;try{let next;try{next=await assessmentApi.selectQuestion(assessmentId,id)}catch(err){if(![404,405].includes(err?.status))throw err;next=await assessmentApi.questionWorkspace(assessmentId,id)}setState(current=>({...current,...next,currentIndex:index}));setActiveQuestion(next?.currentQuestion||next?.question||item)}catch(err){if([404,405].includes(err?.status)){/* 题目内容已在左侧列表中，辅助接口未接入时直接使用列表项 */}else{setError(err?.message||"该题暂时不能打开")}}};
   const sendContent=async(content,extra={})=>{
     if(!content||streaming||submitting)return false;
@@ -577,7 +580,7 @@ function LiveAssessmentSession({task,onExit,onReportClose,notify}){
     finally{setStreaming(false)}
   };
   // 对话模型窗口：纯 LLM 对话（普通聊天，不评分、不推进状态机），消息入库供 Agent 监测/自动保存。
-  // 正式作答/追问答案必须在「提交最终方案」框提交（走 sendContent → chat/stream 状态机）。
+  // 原方案与追问回答通过各自输入框提交，均走正式作答状态机。
   const send=async()=>{
     const content=input.trim();
     if(!content||streaming||submitting)return;
@@ -592,7 +595,8 @@ function LiveAssessmentSession({task,onExit,onReportClose,notify}){
     }catch(err){setError(err?.message||"对话发送失败，请确认记录后重试")}
     finally{setStreaming(false)}
   };
-  const submitFinal=async()=>{const answer=finalAnswer.trim();if(await sendContent(answer,{artifactIds:artifacts.map(item=>item.artifactId)})){setSubmitted(answer);setFinalAnswer("");setArtifacts([])}};
+  const submitFinal=async()=>{const answer=finalAnswer.trim();if(await sendContent(answer,{artifactIds:artifacts.map(item=>item.artifactId)})){setFinalAnswer("");setArtifacts([])}};
+  const submitFollowup=async answer=>{if(String(activeId)!==String(currentId))return false;return sendContent(answer);};
   // 客观题点击选项：直接提交该选项（复用状态机），提交后自动进入下一题
   const submitOption=async option=>{if(await sendContent(option)){setSubmitted(option);setFinalAnswer("")}};
   // 实操题成果附件上传（image/code 存档，随最终方案提交）
@@ -607,7 +611,7 @@ function LiveAssessmentSession({task,onExit,onReportClose,notify}){
   };
   const complete=async()=>{try{await assessmentApi.complete(assessmentId);setReport(await assessmentApi.result(assessmentId))}catch(err){setError(err?.message||"生成报告失败")}};
   if(report)return <ReportSnapshotDetail snapshot={{...report,title:report.title||task.name||task.title,reportType:report.reportType||(String(task.source||"").includes("teacher")?"TASK":"ASSESSMENT")}} onClose={onReportClose||onExit} backLabel={task.returnLabel||"返回来源页面"}/>;
-  return <AgentAssessmentWorkbench title={task.name||task.title||"AI能力测评"} subtitle={`${task.description||task.teacher||"Agent 测评"}${task.minutes?` · 限时 ${task.minutes} 分钟`:""}`} questions={questions} question={question} activeId={activeId} onSelect={selectQuestion} messages={messages} input={input} setInput={setInput} onSend={send} streaming={streaming} assistantText={assistantText} finalAnswer={finalAnswer} setFinalAnswer={setFinalAnswer} onSubmitFinal={submitFinal} onSubmitOption={submitOption} submitting={submitting} submitted={submitted} artifacts={artifacts} onUploadFile={uploadFile} uploading={uploading} followUps={followUps} error={error} loading={!state&&!error} finished={Boolean(state?.finished)} onFinish={complete} onExit={onExit} questionIndex={state?.currentIndex??state?.answeredCount??0}/>;
+  return <AgentAssessmentWorkbench title={task.name||task.title||"AI能力测评"} subtitle={`${task.description||task.teacher||"Agent 测评"}${task.minutes?` · 限时 ${task.minutes} 分钟`:""}`} questions={questions} question={question} activeId={activeId} onSelect={selectQuestion} messages={messages} input={input} setInput={setInput} onSend={send} streaming={streaming} assistantText={assistantText} finalAnswer={finalAnswer} setFinalAnswer={setFinalAnswer} onSubmitFinal={submitFinal} onSubmitOption={submitOption} submitting={submitting} submitted={submitted} artifacts={artifacts} onUploadFile={uploadFile} uploading={uploading} followUps={followUps} onSubmitFollowup={String(activeId)===String(currentId)?submitFollowup:null} error={error} loading={!state&&!error} finished={Boolean(state?.finished)} onFinish={complete} onExit={onExit} questionIndex={state?.currentIndex??state?.answeredCount??0}/>;
 }
 
 function ObjectiveTest({ task, onExit, onTraining, notify }){
@@ -914,10 +918,11 @@ function TeacherPreview({mode,onExit,notify}){
   const visibleMessages=question?.messages||(String(activeId)===String(currentId)?session?.messages||messages:[]);
   const selectQuestion=async(item,index)=>{setActiveQuestion(item);setFinalAnswer(item.finalAnswer||"");setSubmitted(item.finalAnswer||"");const id=assessmentQuestionId(item);if(String(id)===String(currentId))return;try{const next=await teacherData.previewSelectQuestion(session.id,id);setSession(current=>({...current,...next,currentIndex:index}));setActiveQuestion(next?.currentQuestion||next?.question||item)}catch(err){setError(err?.message||"该预览题目暂时不能打开")}};
   const send=async()=>{const content=input.trim();if(!content||!session?.id||busy)return;setInput("");setBusy(true);setError("");setMessages(rows=>[...rows,{role:"user",content}]);try{const next=await teacherData.previewMessage(session.id,{content,questionId:activeId});setMessages(rows=>[...rows,...(next?.reply?[{role:"assistant",content:next.reply}]:[])]);setSession(current=>({...current,...next}))}catch(err){setError(err?.message||"预览对话发送失败")}finally{setBusy(false)}};
-  const submitFinal=async()=>{const answer=finalAnswer.trim();if(!answer||!session?.id||!activeId||busy)return;setBusy(true);setError("");try{let next;try{next=await teacherData.previewFinalAnswer(session.id,activeId,answer)}catch(err){if(err?.status!==404)throw err;next=await teacherData.previewAnswer(session.id,{questionId:activeId,answer})}setSubmitted(answer);setFinalAnswer("");setSession(current=>({...current,...next}));if(next?.nextQuestion)setActiveQuestion(next.nextQuestion);else if(next?.currentQuestion)setActiveQuestion(next.currentQuestion)}catch(err){setError(err?.message||"预览方案提交失败")}finally{setBusy(false)}};
+  const submitPreviewAnswer=async(answer,followup=false)=>{if(!answer||!session?.id||!activeId||busy)return false;setBusy(true);setError("");try{let next;try{next=await teacherData.previewFinalAnswer(session.id,activeId,answer)}catch(err){if(err?.status!==404)throw err;next=await teacherData.previewAnswer(session.id,{questionId:activeId,answer})}if(!followup){setSubmitted(answer);setFinalAnswer("");}setSession(current=>({...current,...next}));if(next?.nextQuestion)setActiveQuestion(next.nextQuestion);else if(next?.currentQuestion)setActiveQuestion(next.currentQuestion);return true;}catch(err){setError(err?.message||"预览方案提交失败");return false;}finally{setBusy(false)}};
+  const submitFinal=()=>submitPreviewAnswer(finalAnswer.trim());
   const finish=async()=>{if(!session?.id)return;try{setReport(await teacherData.previewReport(session.id))}catch(err){setError(err?.message||"预览报告接口尚未提供")}};
   if(report)return <div className="teacher-preview-page"><header><button onClick={onExit}><ChevronLeft/>退出预览</button><div><b>管理员预览 · 不产生记录</b><h1>临时预览报告</h1><p>本报告不写入历史记录、能力画像或任务统计。</p></div></header><section className="preview-report"><pre>{JSON.stringify(report,null,2)}</pre><button onClick={onExit}>退出预览</button></section></div>;
-  return <AgentAssessmentWorkbench title={title} subtitle="管理员预览 · 可以完整作答与多轮对话，但不产生任何正式记录" questions={questions} question={question} activeId={activeId} onSelect={selectQuestion} messages={visibleMessages} input={input} setInput={setInput} onSend={send} streaming={busy} assistantText="" finalAnswer={finalAnswer} setFinalAnswer={setFinalAnswer} onSubmitFinal={submitFinal} submitting={busy} submitted={submitted} followUps={question?.followUps||session?.followUps||[]} error={error} loading={loading} finished={Boolean(session?.finished)} onFinish={finish} onExit={onExit} preview questionIndex={session?.currentIndex||0}/>;
+  return <AgentAssessmentWorkbench title={title} subtitle="管理员预览 · 可以完整作答与多轮对话，但不产生任何正式记录" questions={questions} question={question} activeId={activeId} onSelect={selectQuestion} messages={visibleMessages} input={input} setInput={setInput} onSend={send} streaming={busy} assistantText="" finalAnswer={finalAnswer} setFinalAnswer={setFinalAnswer} onSubmitFinal={submitFinal} submitting={busy} submitted={submitted} followUps={question?.followUps||session?.followUps||[]} onSubmitFollowup={String(activeId)===String(currentId)?answer=>submitPreviewAnswer(answer,true):null} error={error} loading={loading} finished={Boolean(session?.finished)} onFinish={finish} onExit={onExit} preview questionIndex={session?.currentIndex||0}/>;
 }
 
 function TeacherPortal({onLogout}){

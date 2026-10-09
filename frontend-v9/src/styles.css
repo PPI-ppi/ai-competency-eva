@@ -1172,3 +1172,5 @@ body .assessment-tools>.user-pill,
 body .assessment-tools>.user-avatar,
 body .profile-head-user{display:none!important}
 body .objective-head{grid-template-columns:1.3fr 1fr .75fr}
+
+.agent-followup-input{margin-top:12px;padding:13px;border:1px solid #d7e6f4;border-radius:12px;background:#f2f8ff;display:flex;flex-direction:column;gap:10px}.agent-followup-input label{color:#487fac}.agent-followup-input textarea{width:100%;min-height:100px;padding:10px;border:1px solid #d7e6f4;border-radius:9px;resize:vertical;background:#fff}.agent-followup-input button{align-self:flex-end;padding:10px 14px;border:0;border-radius:9px;background:#3478b6;color:#fff}.agent-followup-input button:disabled{opacity:.5}

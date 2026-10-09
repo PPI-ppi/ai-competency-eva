@@ -82,7 +82,10 @@ public class AssessmentAgentService {
     /** v9 左侧「Agent 追问」：当前题目的 AI 消息（第一条是题干，跳过）。 */
     private List<Map<String, Object>> followUps(AssessmentQuestion question) {
         List<Map<String, Object>> out = new ArrayList<>();
-        List<AssessmentMessage> ais = assessments.findByAssessmentQuestionIdOrderBySequenceNo(question.getId()).stream()
+        List<AssessmentMessage> questionMessages = assessments.findByAssessmentQuestionIdOrderBySequenceNo(question.getId());
+        List<LlmClient.FollowupTurn> turns = followupTurns(questionMessages);
+        int turnIndex = 0;
+        List<AssessmentMessage> ais = questionMessages.stream()
                 .filter(m -> "ai".equals(m.getSenderType()))
                 .toList();
         for (int i = 0; i < ais.size(); i++) {
@@ -92,6 +95,9 @@ public class AssessmentAgentService {
             Map<String, Object> view = new LinkedHashMap<>();
             view.put("id", ai.getId());
             view.put("content", ai.getContent());
+            if (turnIndex < turns.size() && Objects.equals(turns.get(turnIndex).ask(), ai.getContent())) {
+                view.put("answer", turns.get(turnIndex++).answer());
+            }
             out.add(view);
         }
         return out;
@@ -670,6 +676,7 @@ public class AssessmentAgentService {
         data.put("content", q.getContentSnapshot());
         data.put("options", q.getOptionsSnapshot());
         data.put("status", q.getStatus());
+        data.put("awaitingFollowup", awaitingFollowup(q));
         data.put("answered", "answered".equals(q.getStatus()));
         data.put("finalAnswer", assessments.findByAssessmentQuestionId(q.getId())
                 .map(AssessmentAnswer::getAnswerContent).orElse(null));
