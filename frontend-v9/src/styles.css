@@ -1175,3 +1175,5 @@ body .objective-head{grid-template-columns:1.3fr 1fr .75fr}
 
 .training-variant-ready { display: flex; align-items: center; gap: 5px; color: #64853c; flex-shrink: 0; }
 .training-variant-ready svg { width: 14px; height: 14px; }
+
+.custom-training-form{max-width:760px}.custom-training-form fieldset{min-width:0}.custom-training-form>header p{max-width:560px}.custom-training-form select{width:100%}

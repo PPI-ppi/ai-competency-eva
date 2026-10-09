@@ -11,6 +11,7 @@ import com.huiqiyikang.assessment.service.AssessmentAgentService;
 import com.huiqiyikang.assessment.service.AssessmentService;
 import com.huiqiyikang.assessment.service.ClassRoomService;
 import com.huiqiyikang.assessment.service.TaskService;
+import com.huiqiyikang.assessment.service.TrainingConfiguration;
 import cn.dev33.satoken.stp.StpUtil;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
@@ -117,6 +118,41 @@ public class AssessmentController {
         // 题量由学生自己选；不选就是不限题量，与改造前行为一致。
         a.setQuestionCount(selfQuestionCount(options == null ? null : options.questionCount()));
         return ApiResponse.ok(assessments.save(a));
+    }
+
+    public record TrainingRequest(Long classId, List<String> dimensions, List<String> assessmentPoints,
+                                  List<String> modes, Integer difficulty, Integer questionCount) {}
+
+    @PostMapping("/training/start")
+    public ApiResponse<?> startTraining(@RequestBody TrainingRequest request) {
+        Long student = uid();
+        if (request.classId() == null || !members.findByClassIdAndStudentUserId(request.classId(), student)
+                .map(member -> "active".equals(member.getStatus())).orElse(false))
+            throw new BusinessException("请先加入并选择有效组织");
+        if (request.dimensions() == null || request.dimensions().isEmpty() || request.assessmentPoints() == null || request.assessmentPoints().isEmpty())
+            throw new BusinessException("请至少选择一个能力维度和考察点");
+        try {AiTaxonomy.validate(request.dimensions(), request.assessmentPoints());}
+        catch (IllegalArgumentException error) {throw new BusinessException(error.getMessage());}
+        var config = new TrainingConfiguration(request.modes(), request.difficulty());
+        config.validate();
+        int count = selfQuestionCount(request.questionCount());
+        var pool = assessments.classQuestions(request.classId()).stream()
+                .map(link -> assessments.question(link.getQuestionId()).orElse(null))
+                .filter(java.util.Objects::nonNull).filter(config::accepts).toList();
+        for (String point : request.assessmentPoints()) {
+            boolean available = pool.stream().anyMatch(q -> {
+                try {return mapper.readValue(q.getAssessmentPoints(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}).contains(point);}
+                catch (Exception ignored) {return false;}
+            });
+            if (!available) throw new BusinessException("组织训练题库没有符合模式、难度的题目：" + point);
+        }
+        Assessment training = new Assessment(request.classId(), student);
+        training.setDimensions(json(request.dimensions()));
+        training.setAssessmentPoints(json(request.assessmentPoints()));
+        training.setQuestionCount(count);
+        try {training.setTrainingConfig(mapper.writeValueAsString(config));}
+        catch (JsonProcessingException error) {throw new BusinessException("训练配置保存失败");}
+        return ApiResponse.ok(assessments.save(training));
     }
 
     /**

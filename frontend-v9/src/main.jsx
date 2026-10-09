@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./styles.css";
+import CustomTrainingModal from "./CustomTrainingModal.jsx";
 import {questionPresentation,isQuestionCopied,readQuestionCopies,saveQuestionCopies} from "./questionBank";
 import {reportSortOptions,sortHistoryReports} from "./reportSorting";
 import AssessmentPointChoices from "./AssessmentPointChoices.jsx";
@@ -308,15 +309,6 @@ function TrainingCenter({ notify }) {
   </div>
 }
 
-function CustomTrainingModal({onClose,onStart}){
-  const [skills,setSkills]=useState([]),[modes,setModes]=useState([]),[level,setLevel]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
-  const toggle=(value,list,setter)=>setter(list.includes(value)?list.filter(x=>x!==value):[...list,value]);
-  const six=["AI基础认知","提示词工程","AI工具使用","AI结果评估与优化","人机协同解决问题","AI伦理与合规"];
-  const icons=[BrainCircuit,MessageCircleMore,Layers3,BarChart3,UsersRound,ShieldCheck];
-  const ready=skills.length>0&&modes.length>0;
-  const start=async()=>{if(!ready||busy)return;setBusy(true);setError("");try{await onStart({skills,modes,level})}catch(err){setError(err?.message||"生成训练失败")}finally{setBusy(false)}};
-  return <div className="custom-training-overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="custom-training-dialog planner"><i className="planner-plane">➤</i><i className="planner-clipboard">✓</i><header><em>自定义训练</em><h2><Sparkles/>创建你的专属训练计划<Sparkles/></h2><p>配置训练目标、模式与难度，AI 将为你生成专属训练计划</p></header><main><section className="planner-target"><h3><b>1</b>选择训练目标（可多选）</h3><small>你想提升哪方面能力？至少选择一项</small><div>{six.map((x,i)=>{const I=icons[i];return <button className={skills.includes(x)?"selected":""} onClick={()=>toggle(x,skills,setSkills)} key={x}><I/><span>{x}</span></button>})}</div><footer>已选择 {skills.length} 项</footer></section><section className="planner-mode"><h3><b>2</b>选择训练模式（可多选）</h3><small>不同模式，训练效果不同；至少选择一项</small>{[["对话式测评","通过与 AI 对话互动，评估思维过程",MessageCircleMore],["实操任务测评","完成真实场景任务，检验工具使用能力",BriefcaseBusiness],["客观题测评","通过单选和判断题掌握知识",ClipboardList]].map(([x,d,I])=><button className={modes.includes(x)?"selected":""} onClick={()=>toggle(x,modes,setModes)} key={x}><I/><span><b>{x}</b><small>{d}</small></span></button>)}</section><section className="planner-side"><div><h3><b>3</b>设置训练难度（可不选）</h3><small>不选择时由 AI 自动匹配难度</small>{["L1","L2","L3","L4","L5"].map(x=><button className={level===x?"selected":""} onClick={()=>setLevel(level===x?null:x)} key={x}><span>{x}</span></button>)}</div></section><section className="planner-preview"><h3><b>4</b>AI 生成预览</h3><p><strong>训练方向</strong>{skills.join("、")||"尚未选择"}</p><p><strong>训练模式</strong>{modes.join("、")||"尚未选择"}</p><p><strong>训练难度</strong>{level||"AI 自动匹配"}</p></section><section className="planner-schedule planner-actions"><footer><button className="planner-cancel" onClick={onClose}>取消</button><button onClick={start}>{busy?"正在生成…":"生成训练计划"}<Sparkles/></button></footer>{!ready&&<p className="planner-required">请至少选择一项训练目标与一种训练模式</p>}{error&&<p className="planner-required">{error}</p>}</section></main></div></div>
-}
 
 function LearningTrainingCenter({notify,onStart}){
   const [custom,setCustom]=useState(false); const [month,setMonth]=useState(7);
@@ -1092,7 +1084,7 @@ function TrainingGroundV2({onStart,onReports,openTeacherTasks=false,onTeacherTas
       ["保持高频人机协作实践","持续参与组织任务与自主测评，巩固人机协同专家水平，向 L5 创新应用者进阶。"],
     ].map(([t,c],i)=><p key={i}><b>{i+1}</b><span><strong>{t}</strong><small>{c}</small></span></p>)}<div className="advice-illustration"><Sparkles/><BookOpen/></div></section></div>
     <footer className="training-security"><ShieldCheck/>数据安全保障　|　训练数据仅用于能力提升与分析，保护你的隐私安全</footer>
-    {custom&&<CustomTrainingModal onClose={()=>setCustom(false)} onStart={c=>{setCustom(false)}}/>}
+    {custom&&<CustomTrainingModal onClose={()=>setCustom(false)} onStart={generate}/>}
   </div>
 }
 

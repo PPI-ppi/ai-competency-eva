@@ -297,8 +297,8 @@ public class EngineService {
                 if (dn >= 1) levelOrder.add(dn);
             }
             for (int lv : levelOrder) {
-                q = pickQuestion(a.getClassId(), chosen.getAssessmentPoint(), lv, usedIds);
-                if (q != null) { difficultyLevel = lv; d = lv / 5.0; break; }
+                q = pickQuestion(a, chosen.getAssessmentPoint(), lv, usedIds);
+                if (q != null) { difficultyLevel = a.getTrainingConfig() != null && q.getDifficulty() != null ? q.getDifficulty() : lv; d = difficultyLevel / 5.0; break; }
             }
             if (q == null) {
                 // 该点题已穷尽：标记 removed、跳过，继续下一 active 点
@@ -507,13 +507,15 @@ public class EngineService {
         return Math.max(1, Math.min(5, level));
     }
 
-    private Question pickQuestion(Long classId, String pointName, int difficultyLevel, Set<Long> excludeIds) {
+    private Question pickQuestion(Assessment assessment, String pointName, int difficultyLevel, Set<Long> excludeIds) {
+        Long classId = assessment.getClassId();
+        TrainingConfiguration training = TrainingConfiguration.read(assessment.getTrainingConfig(), mapper);
         // 有组织时只用该组织的有效测试原题；训练变体不得进入正式测评。
         List<Question> pool;
         if (classId != null && classId > 0) {
             List<Long> ids = classQuestions.findByClassIdAndStatus(classId, "active").stream()
                     .map(ClassQuestion::getQuestionId).distinct().toList();
-            pool = questions.findAllById(ids).stream().filter(QuestionService::isActiveTest).toList();
+            pool = questions.findAllById(ids).stream().filter(q -> training == null ? QuestionService.isActiveTest(q) : training.accepts(q)).toList();
         } else {
             pool = questions.testList().stream().filter(QuestionService::isActiveTest).toList();
             if (pool.isEmpty()) pool = questions.publicList().stream().filter(QuestionService::isActiveTest).toList();

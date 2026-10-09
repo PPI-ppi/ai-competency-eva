@@ -680,6 +680,7 @@ public class AssessmentAgentService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("id", a.getId());
         data.put("taskId", a.getTaskId());
+        data.put("reportType", a.getTrainingConfig() != null ? "TRAINING" : a.getTaskId() != null ? "TASK" : "ASSESSMENT");
         data.put("classId", a.getClassId());
         data.put("studentUserId", a.getStudentUserId());
         data.put("questionCount", a.getQuestionCount());
