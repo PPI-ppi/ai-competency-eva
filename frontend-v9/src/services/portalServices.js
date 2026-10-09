@@ -153,7 +153,7 @@ export const teacherData = {
 };
 
 const normalizeAssessment = row => {
-  const sourceType=String(row.reportType||row.type||row.category||row.mode||row.assessmentType||"").toUpperCase();
+  const sourceType=String((row.trainingConfig?"TRAINING":null)||row.reportType||row.type||row.category||row.mode||row.assessmentType||"").toUpperCase();
   const type=row.taskId||row.remedialTaskId||sourceType.includes("TASK")||sourceType.includes("任务")?"任务报告":sourceType.includes("TRAIN")||sourceType.includes("训练")?"训练报告":"测评报告";
   return {
     ...row,
@@ -180,8 +180,12 @@ export const studentData = {
   joinByInvite: inviteCode => http.post("/api/classes/join", { inviteCode }),
   trainingAdvice: () => http.get("/api/training/advice"),
   trainingPreview: body => http.post("/api/training/preview", body),
-  async startTraining() {
-    return unsupported("自定义训练（模式、难度设置）");
+  async startTraining(body) {
+    const classes=await studentData.joinedClasses();
+    const selected=localStorage.getItem("ripple-current-class");
+    const classId=classes.find(row=>String(row.id)===String(selected))?.id;
+    if(!classId)throw new ApiError("请先加入并选择组织后再开始训练");
+    return http.post("/api/training/start", {...body,classId});
   },
 };
 

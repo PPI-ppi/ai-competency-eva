@@ -40,4 +40,15 @@ class EngineQuestionIsolationTest {
         assertTrue(engine.nextQuestion(10L).finished());
         verify(snapshots,never()).save(any());verify(questions,never()).testList();verify(questions,never()).publicList();
     }
+    @Test void customTrainingOnlyUsesMatchingVariantsAndPersistsActualDifficulty() {
+        initialize();var assessment=assessments.findById(10L).orElseThrow();
+        assessment.setTrainingConfig("{\"modes\":[\"DIALOGUE\"],\"difficulty\":4}");
+        var source=question(7,"test");source.setType("DIALOGUE");source.setDifficulty(4);
+        var wrong=question(8,"training");wrong.setType("PRACTICAL");wrong.setDifficulty(4);
+        var matching=question(9,"training");matching.setType("DIALOGUE");matching.setDifficulty(4);
+        when(questions.findAllById(anyCollection())).thenReturn(List.of(source,wrong,matching));
+        when(questions.findById(9L)).thenReturn(Optional.of(matching));
+        var next=engine.nextQuestion(10L);
+        assertEquals(9L,next.questionId());assertEquals(4,next.difficultyLevel());
+    }
 }

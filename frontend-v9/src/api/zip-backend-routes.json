@@ -308,5 +308,9 @@
     "method": "GET",
     "path": "/api/teacher/classes/{classId}/students/{studentId}/profile",
     "source": "TeacherAbilityController.java"
+  },
+  {
+    "method": "POST",
+    "path": "/api/training/start"
   }
 ]
