@@ -1,4 +1,6 @@
 package com.huiqiyikang.assessment.mapper; import com.huiqiyikang.assessment.entity.Assessment; import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper; import java.util.*; public interface AssessmentRepository extends BaseMapperX<Assessment>{
+ @org.apache.ibatis.annotations.Select("SELECT * FROM assessments WHERE id=#{id} FOR UPDATE")
+ Assessment lockById(@org.apache.ibatis.annotations.Param("id") Long id);
  // 已完成的测评状态；带评分失败也算完成，分数只按评分成功的题目算。
  List<String> COMPLETED_STATUSES = List.of("completed", "completed_with_scoring_failure");
  // LIMIT 1 keeps this working on databases that still carry duplicate sessions created before the reuse rule existed.

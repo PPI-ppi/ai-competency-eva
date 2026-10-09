@@ -18,6 +18,7 @@ public class AssessmentService {
     }
     public Optional<Assessment> findAssessmentById(Long id){return assessments.findById(id);}
     public Optional<Assessment> findById(Long id){return assessments.findById(id);}
+    public Optional<Assessment> lockById(Long id){return Optional.ofNullable(assessments.lockById(id));}
     public List<Assessment> listAssessments(Long uid){return assessments.findByStudentUserIdOrderByCreatedAtDesc(uid);}
     public List<Assessment> findByStudentUserIdOrderByCreatedAtDesc(Long uid){return assessments.findByStudentUserIdOrderByCreatedAtDesc(uid);}
     public List<Assessment> findByStudentUserIdAndClassIdOrderByCreatedAtDesc(Long uid,Long classId){return assessments.findByStudentUserIdAndClassIdOrderByCreatedAtDesc(uid,classId);}

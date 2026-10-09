@@ -9,6 +9,7 @@ import com.huiqiyikang.assessment.entity.*;
 import com.huiqiyikang.assessment.mapper.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -127,8 +128,9 @@ public class EngineService {
         return buildStartResult(a, pointWeights);
     }
 
+    @Transactional
     public StartResult initializeExistingAssessment(Long assessmentId) {
-        Assessment a = assessments.findById(assessmentId)
+        Assessment a = assessments.lockById(assessmentId)
                 .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
         if (!pointStates.findByAssessmentId(a.getId()).isEmpty()) {
             return buildStartResult(a, null);
@@ -246,8 +248,9 @@ public class EngineService {
                              String answer, String rubric, String assessmentPoints,
                              String artifactType, String artifactRequirement) {}
 
+    @Transactional
     public NextQuestionResult nextQuestion(Long assessmentId) {
-        Assessment a = assessments.findById(assessmentId)
+        Assessment a = assessments.lockById(assessmentId)
                 .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
 
         // 2.1 检查是否已有未答完的题（断点续做）

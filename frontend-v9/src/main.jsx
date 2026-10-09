@@ -552,7 +552,8 @@ function LiveAssessmentSession({task,onExit,onReportClose,notify}){
   const assessmentId=task.assessmentId||task.id;
   const applyConversation=input=>{const data=normalizeConversation(input);setState(current=>({...current,...data}));const current=data?.currentQuestion||data?.question;setActiveQuestion(current||null);setSubmitted(previous=>current?.finalAnswer||data?.finalAnswer||previous)};
   const load=async()=>{try{setError("");let data;try{data=await assessmentApi.conversation(assessmentId)}catch(err){if(err?.status!==404)throw err;data=await assessmentApi.conversation(assessmentId)}data=normalizeConversation(data||{});applyConversation(data);if(!data?.currentQuestion&&!data?.question&&!data?.finished){setStreaming(true);setAssistantText("");await sendAssessmentChat(assessmentId,"",{onDelta:delta=>setAssistantText(current=>current+delta),onState:update=>applyConversation(update||{}),onDone:async update=>{if(update&&typeof update==="object")applyConversation(update);try{applyConversation(await assessmentApi.conversation(assessmentId))}catch{}},onError:err=>setError(err?.message||"第一题加载失败")});setStreaming(false)}}catch(err){setStreaming(false);setError(err?.message||"测评会话加载失败")}};
-  useEffect(()=>{load()},[assessmentId]);
+  const loadedAssessment=useRef(null);
+  useEffect(()=>{if(loadedAssessment.current===assessmentId)return;loadedAssessment.current=assessmentId;load()},[assessmentId]);
   const currentQuestion=state?.currentQuestion||state?.question;
   const questions=state?.questions||state?.assignedQuestions||state?.questionList||(currentQuestion?[currentQuestion]:[]);
   const question=activeQuestion||currentQuestion;
