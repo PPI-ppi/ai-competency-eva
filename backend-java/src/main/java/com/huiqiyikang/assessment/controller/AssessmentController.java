@@ -223,13 +223,11 @@ public class AssessmentController {
         payload.put("student_user_id", uid());
         try {
             agent.chatStream(id, uid(), payload, out);
-        } catch (BusinessException e) {
-            // 已经进入流式响应，只能用 SSE 事件把失败告诉前端。
-            if (!response.isCommitted()) {
-                out.write(("event: error\ndata: " + mapper.writeValueAsString(e.getMessage()) + "\n\n")
-                        .getBytes(StandardCharsets.UTF_8));
-                out.flush();
-            }
+        } catch (Exception e) {
+            // SSE 错误必须保持事件格式，即使前面的题目事件已经写出。
+            out.write(("event: error\ndata: " + mapper.writeValueAsString(Map.of("message", e.getMessage() == null ? "测评请求失败" : e.getMessage())) + "\n\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.flush();
         }
     }
 

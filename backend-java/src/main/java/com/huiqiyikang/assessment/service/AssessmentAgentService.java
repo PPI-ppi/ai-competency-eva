@@ -248,6 +248,7 @@ public class AssessmentAgentService {
             return;
         }
 
+        try {
         engine.initializeExistingAssessment(assessmentId);
         String content = String.valueOf(body == null ? "" : body.getOrDefault("content", "")).trim();
         List<Long> artifactIds = parseArtifactIds(body);
@@ -257,7 +258,6 @@ public class AssessmentAgentService {
         String action = hasExplicitAction ? String.valueOf(body.get("action")).trim().toLowerCase() : "";
         AssessmentQuestion current = currentQuestion(assessmentId);
 
-        try {
             if (content.isBlank()) {
                 if (current == null) {
                     openNextOrFinish(assessmentId, out);

@@ -21,6 +21,7 @@ class EngineQuestionIsolationTest {
     AssessmentPointState initialize() {
         var assessment=new Assessment(99L,1L);assessment.setId(10L);
         when(assessments.findById(10L)).thenReturn(Optional.of(assessment));
+        when(assessments.lockById(10L)).thenReturn(Optional.of(assessment));
         var point=new AssessmentPointState();point.setAssessmentId(10L);point.setAssessmentPoint("提示词书写");point.setDimension("提示词工程");
         when(states.findActiveByAssessmentId(10L)).thenAnswer(call->"active".equals(point.getStatus())?List.of(point):List.of());
         when(links.findByClassIdAndStatus(99L,"active")).thenReturn(List.of(new ClassQuestion(99L,7L),new ClassQuestion(99L,8L)));
