@@ -16,14 +16,26 @@ import java.util.stream.Collectors;
  */
 @RestController @RequestMapping("/api/teacher")
 public class TeacherAssessmentController {
+    @org.springframework.beans.factory.annotation.Autowired private TaskAssignmentService assignments;
     private final AssessmentService assessments; private final TaskService tasks; private final AssessmentService questions; private final AssessmentService answers; private final ClassRoomService classes; private final AccountService users; private final AccountService teachers;
     public TeacherAssessmentController(AssessmentService a,TaskService t,AssessmentService q,AssessmentService aa,ClassRoomService c,AccountService u,AccountService tr){assessments=a;tasks=t;questions=q;answers=aa;classes=c;users=u;teachers=tr;}
 
-    /** 任务下的完成情况：直接按 task_id 查，不再 findAll() 后内存过滤。 */
+    /** 任务下的完成情况：按任务学生名单（含小灶/补救目标学生）过滤，未开始的学生补 pending 行。 */
     @GetMapping("/assessment-tasks/{taskId}/results")
     public ApiResponse<?> taskResults(@PathVariable Long taskId) {
         AssessmentTask task = ownedTask(taskId);
-        return ApiResponse.ok(summaries(assessments.findByTaskIdIn(List.of(task.getId())), Map.of(task.getId(), task)));
+        List<Long> audience = assignments.audience(task);
+        List<Assessment> attempts = assessments.findByTaskIdIn(List.of(task.getId())).stream()
+                .filter(a -> audience.contains(a.getStudentUserId())).toList();
+        List<Map<String, Object>> result = new ArrayList<>(summaries(attempts, Map.of(task.getId(), task)));
+        Set<Long> started = attempts.stream().map(Assessment::getStudentUserId).collect(Collectors.toSet());
+        for (User user : users.findAllById(audience.stream().filter(id -> !started.contains(id)).toList())) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("studentId", user.getId()); row.put("studentNickname", user.getName());
+            row.put("taskId", task.getId()); row.put("status", "pending");
+            result.add(row);
+        }
+        return ApiResponse.ok(result);
     }
 
     /** 班级下的完成情况：先取班级的 active 任务，再按这批 task_id 取测评。 */

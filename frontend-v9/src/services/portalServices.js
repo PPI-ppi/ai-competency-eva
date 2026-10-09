@@ -133,7 +133,7 @@ export const teacherData = {
   addClassifiedQuestion: (classId, bankType, questionId) => http.post(`/api/classes/${classId}/question-banks/${bankType}/questions/${questionId}`),
   removeClassifiedQuestion: (classId, bankType, questionId) => http.delete(`/api/classes/${classId}/question-banks/${bankType}/questions/${questionId}`),
   classTasks: id => http.get(`/api/classes/${id}/assessment-tasks`),
-  createTask: (classId, body) => http.post(`/api/classes/${classId}/assessment-tasks`, {title:body.title,description:body.description,deadlineAt:body.deadlineAt||null,dimensions:body.dimensions,assessmentPoints:body.assessmentPoints}),
+  createTask: (classId, body) => http.post(`/api/classes/${classId}/assessment-tasks`, {questionCount:body.questionCount,requestKey:body.requestKey,title:body.title,description:body.description,deadlineAt:body.deadlineAt||null,dimensions:body.dimensions,assessmentPoints:body.assessmentPoints}),
   taskStatistics: () => http.get("/api/teacher/assessment-tasks/statistics"),
   taskResults: id => http.get(`/api/teacher/assessment-tasks/${id}/results`),
   endTask: id => http.post(`/api/assessment-tasks/${id}/end`),
@@ -161,6 +161,7 @@ const normalizeAssessment = row => {
     name: row.name || row.title || row.taskTitle || (type==="任务报告"?"组织任务报告":type==="训练报告"?"训练报告":"自主能力测评"),
     type,
     score: row.score ?? row.averageScore ?? row.totalScore ?? null,
+    scope: [row.scope,...parseList(row.dimensions),...parseList(row.assessmentPoints)].filter(Boolean).join("、"),
     completedAt: row.completedAt || row.updatedAt || row.createdAt,
   };
 };
@@ -178,15 +179,10 @@ export const studentData = {
   },
   availableTasks: async () => asList(await http.get("/api/assessment-tasks/available")),
   joinByInvite: inviteCode => http.post("/api/classes/join", { inviteCode }),
-  trainingAdvice: () => http.get("/api/training/advice"),
+  createPersonalOrganization: body => http.post("/api/classes/personal", body),
+  trainingAdvice: classId => http.get(`/api/training/advice?classId=${encodeURIComponent(classId)}`),
   trainingPreview: body => http.post("/api/training/preview", body),
-  async startTraining(body) {
-    const classes=await studentData.joinedClasses();
-    const selected=localStorage.getItem("ripple-current-class");
-    const classId=classes.find(row=>String(row.id)===String(selected))?.id;
-    if(!classId)throw new ApiError("请先加入并选择组织后再开始训练");
-    return http.post("/api/training/start", {...body,classId});
-  },
+  startTraining: body => http.post("/api/training/start", body),
 };
 
 export const missingBackend = unsupported;

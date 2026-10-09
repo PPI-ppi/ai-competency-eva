@@ -8,6 +8,7 @@ public class ClassRoom {
     String name;
     String description;
     String pointWeights;
+    Long personalOwnerId;
     Instant createdAt=Instant.now();
     Instant updatedAt=Instant.now();
     public ClassRoom(Long teacherUserId,String name,String description){

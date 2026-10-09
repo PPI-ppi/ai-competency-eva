@@ -208,7 +208,9 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                 你是 AI 能力测评的报告撰写官。请根据后端提供的数据生成个性化测评报告。
                 只输出 JSON：
                 {"overall":"...","dimensions":{},"points":[],"suggestions":[]}
-                未收敛的考察点评为“未测准”，不要硬下结论。
+                overall 必须为200–300字，依据真实题目、答案、对话、最终方案及评分给出建议，不虚构能力。
+                dimensions 包含六个维度的独立分析。tested=false或questionCount=0时写“未考察”，评分失败写“评分失败”；真实0分不得写成未考察。
+                points 中逐项返回 name、comment。suggestions 返回3条具体练习建议。不要输出“未测准”。
                 """, reportDataJson);
     }
 

@@ -5,6 +5,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.huiqiyikang.assessment.common.BusinessException;
+import com.huiqiyikang.assessment.domain.AiTaxonomy;
+import com.huiqiyikang.assessment.domain.AbilityLevelScale;
+import com.huiqiyikang.assessment.domain.ProfileMath;
 import com.huiqiyikang.assessment.entity.*;
 import com.huiqiyikang.assessment.mapper.*;
 import org.springframework.http.HttpStatus;
@@ -19,8 +22,12 @@ import java.util.*;
  * 自适应编排器：纯确定性数值计算模块，不调用任何大模型。
  * 公式严格对齐《自适应引擎 5.0》。所有 θ/c 计算在这里，LLM 只负责评分/追问/报告文字。
  *
- * 第一版实现：start 初始化 + next-question 选题 + score-result 评分回传。
- * 追问结果、报告、实操文件接口第二阶段补。
+ * 融合说明（10.8.3 → master）：
+ * - 保留 master：并发锁（lockById/@Transactional）、TrainingConfiguration 自定义训练、MAX_QUESTIONS 硬上限、
+ *   POINT_TO_DIMENSION 受控词表兜底、isActiveTest 双轨制题库过滤。
+ * - 吸收 10.8.3：任务发布校验（TaskAssignmentService）、任务题量上限 limit(a)、测评前画像快照
+ *   beforeProfileJson、reportType/assessmentPoints/dimensions 落库、权重选点、ProfileMath 能力阈值/衰减、
+ *   levelScale 能力档、completed_with_scoring_failure 状态、考察点 JSON 精确匹配。
  */
 @Service
 public class EngineService {
@@ -54,6 +61,9 @@ public class EngineService {
     private final AssessmentDimensionScoreRepository dimensionScores;
     private final AssessmentPointScoreRepository pointScores;
     private final ObjectMapper mapper;
+    private final TaskAssignmentService assignments;
+    private final GrowthService growth;
+    private final AbilityLevelScale levelScale;
 
     public EngineService(AssessmentService assessments, QuestionService questions,
                          AssessmentQuestionRepository assessmentQuestions, AssessmentAnswerRepository answers,
@@ -62,7 +72,8 @@ public class EngineService {
                          ClassQuestionRepository classQuestions, ClassRoomRepository classRoomRepository,
                          AssessmentMessageRepository messages,
                          AssessmentDimensionScoreRepository dimensionScores,
-                         AssessmentPointScoreRepository pointScores, ObjectMapper mapper) {
+                         AssessmentPointScoreRepository pointScores, ObjectMapper mapper,
+                         TaskAssignmentService assignments, GrowthService growth, AbilityLevelScale levelScale) {
         this.assessments = assessments; this.questions = questions;
         this.assessmentQuestions = assessmentQuestions; this.answers = answers;
         this.pointStates = pointStates; this.freshnessRepo = freshnessRepo;
@@ -71,6 +82,7 @@ public class EngineService {
         this.classRoomRepository = classRoomRepository;
         this.messages = messages; this.dimensionScores = dimensionScores;
         this.pointScores = pointScores; this.mapper = mapper;
+        this.assignments = assignments; this.growth = growth; this.levelScale = levelScale;
     }
 
     // ==================== 1. start：初始化 ====================
@@ -79,21 +91,40 @@ public class EngineService {
                                String status, Integer questionCount, List<PointWeight> points) {}
     public record PointWeight(String name, String dimension, Double weight) {}
 
+    @Transactional
     public StartResult start(Long taskId, Long classId, Long studentUserId,
                              List<String> dimensionNames, List<String> pointNames) {
         Assessment a;
-        // 幂等：已有进行中的测评直接复用
+        // 幂等：已有进行中的测评直接复用；任务型先做发布校验（存在/归属/未结束）
         if (taskId != null) {
+            AssessmentTask task = assignments.lockStart(taskId);
+            if (task == null) throw new BusinessException("任务不存在");
+            assignments.checkStudent(task, studentUserId);
+            classId = task.getClassId();
+            if (assignments.ended(task) && assessments.findByTaskIdAndStudentUserId(taskId, studentUserId).isEmpty())
+                throw new BusinessException("任务已结束");
+            final Long targetClassId = classId;
             a = assessments.findByTaskIdAndStudentUserId(taskId, studentUserId)
                     .orElseGet(() -> {
-                        Assessment na = new Assessment(taskId, classId, studentUserId);
-                        na.setQuestionCount(0);
+                        Assessment na = new Assessment(taskId, targetClassId, studentUserId);
+                        na.setQuestionCount(task.getQuestionCount());
+                        na.setReportType("TASK");
                         return assessments.save(na);
                     });
         } else {
             a = new Assessment(classId != null ? classId : 0L, studentUserId);
             a.setQuestionCount(0);
             a = assessments.save(a);
+        }
+
+        // 已完成（如断点后手动提交）直接返回，不重复初始化
+        if (!"in_progress".equals(a.getStatus())) return buildStartResult(a, null);
+
+        // 测评前画像快照（报告前后对比用）：仅首次记录
+        if (a.getBeforeProfileJson() == null) {
+            a.setBeforeProfileJson(growth.encode(growth.profile(a.getClassId(), studentUserId)));
+            if (a.getTaskId() != null) a.setReportType("TASK");
+            assessments.save(a);
         }
 
         // 如果这个测评已经初始化过考察点状态（断点续做），直接返回
@@ -107,6 +138,8 @@ public class EngineService {
         try {
             a.setPointWeights(mapper.writeValueAsString(pointWeights.stream()
                     .collect(java.util.stream.Collectors.toMap(PointWeight::name, PointWeight::weight))));
+            a.setAssessmentPoints(mapper.writeValueAsString(pointWeights.stream().map(PointWeight::name).toList()));
+            a.setDimensions(mapper.writeValueAsString(pointWeights.stream().map(PointWeight::dimension).distinct().toList()));
             assessments.save(a);
         } catch (JsonProcessingException e) {
             throw new BusinessException("权重序列化失败");
@@ -132,6 +165,7 @@ public class EngineService {
     public StartResult initializeExistingAssessment(Long assessmentId) {
         Assessment a = assessments.lockById(assessmentId)
                 .orElseThrow(() -> new BusinessException("测评不存在", HttpStatus.NOT_FOUND));
+        if (a.getTaskId() != null) assignments.checkStudent(assessments.findTask(a.getTaskId()), a.getStudentUserId());
         if (!pointStates.findByAssessmentId(a.getId()).isEmpty()) {
             return buildStartResult(a, null);
         }
@@ -141,6 +175,8 @@ public class EngineService {
         try {
             a.setPointWeights(mapper.writeValueAsString(pointWeights.stream()
                     .collect(java.util.stream.Collectors.toMap(PointWeight::name, PointWeight::weight))));
+            a.setAssessmentPoints(mapper.writeValueAsString(pointWeights.stream().map(PointWeight::name).toList()));
+            a.setDimensions(mapper.writeValueAsString(pointWeights.stream().map(PointWeight::dimension).distinct().toList()));
             assessments.save(a);
         } catch (JsonProcessingException e) {
             throw new BusinessException("权重序列化失败");
@@ -174,7 +210,8 @@ public class EngineService {
 
     /**
      * 解析本场考察点与权重：
-     * 任务型从 task 的 assessment_points 读考察点列表；权重从班级（class）读，不从任务读。
+     * 任务型从 task 的 assessment_points 读考察点列表；权重优先任务自带（教师发布任务时由班级权重
+     * 落库到 task.point_weights），否则从班级读（创建班级时教师设定，0-10整数）。
      * 自主练习等权 1.0。
      */
     private List<PointWeight> resolvePoints(Long taskId, Assessment a,
@@ -183,8 +220,8 @@ public class EngineService {
         if (taskId != null) {
             AssessmentTask task = assessments.findTask(taskId);
             List<String> points = parseJsonList(task.getAssessmentPoints());
-            // 权重从班级读（创建班级时教师设定，0-10整数）
-            Map<String, Double> weights = loadClassWeights(a.getClassId());
+            // 权重从任务读（发布任务时已把班级权重快照到任务），任务没有则回退班级
+            Map<String, Double> weights = task.getPointWeights() == null ? loadClassWeights(a.getClassId()) : parseWeights(task.getPointWeights());
             List<PointWeight> result = new ArrayList<>();
             for (String p : points) {
                 result.add(new PointWeight(p, guessDimension(p),
@@ -192,11 +229,12 @@ public class EngineService {
             }
             if (!result.isEmpty()) return result;
         }
-        // 自主练习：等权
+        // 自主练习：等权（有权重配置的组织按班级权重）
         List<PointWeight> result = new ArrayList<>();
         if (pointNames != null) {
             for (String p : pointNames) {
-                result.add(new PointWeight(p, guessDimension(p), 1.0));
+                result.add(new PointWeight(p, guessDimension(p),
+                        loadClassWeights(a.getClassId()).getOrDefault(p, 1.0)));
             }
         }
         if (result.isEmpty()) {
@@ -259,15 +297,24 @@ public class EngineService {
             return toNextQuestionResult(pending.get(0), false, null, 0.0, false);
         }
 
-        // 2.2 可考察点列表
+        // 2.2 可考察点列表；任务/训练模式若全部状态非 active（removed 等）且未到题量上限，
+        // 重置为 active 继续出题（训练/任务按题量上限终止，不受收敛提前截断）
+        int answeredCount = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId).size();
         List<AssessmentPointState> active = pointStates.findActiveByAssessmentId(assessmentId);
+        if (active.isEmpty() && ("TRAINING".equals(a.getReportType()) || "TASK".equals(a.getReportType()))
+                && a.getQuestionCount() != null && a.getQuestionCount() > 0 && answeredCount < limit(a)) {
+            for (AssessmentPointState point : pointStates.findByAssessmentId(assessmentId)) {
+                point.setStatus("active");
+                pointStates.save(point);
+            }
+            active = pointStates.findActiveByAssessmentId(assessmentId);
+        }
         if (active.isEmpty()) {
             return finishResult(assessmentId, "all_converged");
         }
 
-        // 题量上限（30题硬上限）；教师不再设定题数，终止只看收敛或此上限。
-        int answeredCount = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId).size();
-        if (answeredCount >= MAX_QUESTIONS) {
+        // 题量上限（30题硬上限或任务题数）；终止只看收敛或此上限。
+        if (answeredCount >= limit(a)) {
             return finishResult(assessmentId, "max_questions");
         }
 
@@ -282,8 +329,8 @@ public class EngineService {
             if (activeNow.isEmpty()) {
                 return finishResult(assessmentId, "all_converged");
             }
-            // 第一级：选考察点 f = w·(1-c) + ε
-            chosen = pickPoint(activeNow);
+            // 第一级：选考察点 f = w·(1-c) + ε（w 取本场权重快照）
+            chosen = pickPoint(activeNow, parseWeights(a.getPointWeights()));
 
             // 第二级：选难度档
             Double currentProfile = findProfileValue(a.getStudentUserId(), a.getClassId(), chosen.getAssessmentPoint());
@@ -432,13 +479,13 @@ public class EngineService {
         return Math.max(lo, Math.min(hi, v));
     }
 
-    private AssessmentPointState pickPoint(List<AssessmentPointState> active) {
-        // f = w·(1-c) + ε，w 暂取 1.0（权重在 start 时记录，第一版简化）
+    private AssessmentPointState pickPoint(List<AssessmentPointState> active, Map<String, Double> weightMap) {
+        // f = w·(1-c) + ε，w 取本场权重快照（任务/班级设定），缺省 1.0
         Random rnd = new Random();
         AssessmentPointState best = null;
         double bestF = -1;
         for (AssessmentPointState s : active) {
-            double w = 1.0;
+            double w = weightMap.getOrDefault(s.getAssessmentPoint(), 1.0);
             double f = w * (1 - s.getConfidence()) + EPSILON * rnd.nextDouble();
             if (f > bestF) { bestF = f; best = s; }
         }
@@ -510,10 +557,15 @@ public class EngineService {
         return Math.max(1, Math.min(5, level));
     }
 
+    /** 本场题量上限：任务/训练有 questionCount 时取其与硬上限的较小值，否则 30 题硬上限。 */
+    private int limit(Assessment a) {
+        return a.getQuestionCount() != null && a.getQuestionCount() > 0 ? Math.min(MAX_QUESTIONS, a.getQuestionCount()) : MAX_QUESTIONS;
+    }
+
     private Question pickQuestion(Assessment assessment, String pointName, int difficultyLevel, Set<Long> excludeIds) {
         Long classId = assessment.getClassId();
         TrainingConfiguration training = TrainingConfiguration.read(assessment.getTrainingConfig(), mapper);
-        // 有组织时只用该组织的有效测试原题；训练变体不得进入正式测评。
+        // 有组织时只用该组织的有效测试原题；训练变体不得进入正式测评。自定义训练（trainingConfig 非空）按训练配置过滤。
         List<Question> pool;
         if (classId != null && classId > 0) {
             List<Long> ids = classQuestions.findByClassIdAndStatus(classId, "active").stream()
@@ -523,19 +575,19 @@ public class EngineService {
             pool = questions.testList().stream().filter(QuestionService::isActiveTest).toList();
             if (pool.isEmpty()) pool = questions.publicList().stream().filter(QuestionService::isActiveTest).toList();
         }
-        // 第一遍：匹配目标难度档 + 考察点
+        // 第一遍：匹配目标难度档 + 考察点（考察点用 JSON 精确匹配，避免子串误配）
         for (Question q : pool) {
             if (excludeIds.contains(q.getId())) continue;
             if (q.getDifficulty() == null || q.getDifficulty() != difficultyLevel) continue;
             String points = q.getAssessmentPoints();
-            if (points == null || !points.contains(pointName)) continue;
+            if (points == null || !parseJsonList(points).contains(pointName)) continue;
             return q;
         }
         // 第二遍：目标难度档没匹配，放宽难度只匹配考察点（就近扩散）
         for (Question q : pool) {
             if (excludeIds.contains(q.getId())) continue;
             String points = q.getAssessmentPoints();
-            if (points == null || !points.contains(pointName)) continue;
+            if (points == null || !parseJsonList(points).contains(pointName)) continue;
             return q;
         }
         return null;
@@ -585,7 +637,7 @@ public class EngineService {
         catch (Exception e) { return Map.of(); }
     }
 
-    // 考察点 → 维度 受控映射（对齐《具体考察点》六维表，逐字一致）
+    // 考察点 → 维度 受控映射（对齐《具体考察点》六维表，逐字一致）；AiTaxonomy 未覆盖时兜底
     private static final Map<String, String> POINT_TO_DIMENSION = new HashMap<>();
     static {
         // AI基础认知（7）
@@ -617,6 +669,12 @@ public class EngineService {
     }
 
     private String guessDimension(String point) {
+        // 优先走受控词表（支持“AI工具使用-场景”双层考察点）；不在表内回退静态映射
+        try {
+            return AiTaxonomy.dimensionOf(point).label();
+        } catch (IllegalArgumentException ignored) {
+            // 继续静态表兜底
+        }
         String dim = POINT_TO_DIMENSION.get(point);
         if (dim != null) return dim;
         // 理论上不会走到：本场考察点都来自受控词表。未登记的点归到基础认知兜底。
@@ -751,7 +809,7 @@ public class EngineService {
 
         // 幂等：已完成直接读库返回（不重复聚合）
         List<AssessmentPointState> states = pointStates.findByAssessmentId(assessmentId);
-        boolean alreadyCompleted = "completed".equals(a.getStatus());
+        boolean alreadyCompleted = AssessmentRepository.COMPLETED_STATUSES.contains(a.getStatus());
         if (states.isEmpty()) throw new BusinessException("测评无考察点状态");
 
         List<AssessmentQuestion> aqList = assessmentQuestions.findByAssessmentIdOrderBySequenceNo(assessmentId);
@@ -760,7 +818,7 @@ public class EngineService {
         // 还有 active（未收敛/未剔除）的考察点，且未到题量上限 → 继续出题，不出分
         long remainingActive = states.stream().filter(s -> "active".equals(s.getStatus())).count();
         long answeredQ = aqList.stream().filter(q -> "answered".equals(q.getStatus())).count();
-        if (!alreadyCompleted && remainingActive > 0 && answeredQ < MAX_QUESTIONS) {
+        if (!alreadyCompleted && remainingActive > 0 && answeredQ < limit(a)) {
             List<ReportAnswerRecord> prog = new ArrayList<>();
             for (AssessmentQuestion q : aqList) {
                 prog.add(new ReportAnswerRecord(q.getSequenceNo(), q.getQuestionId(), q.getType(),
@@ -770,7 +828,7 @@ public class EngineService {
             return new ReportData(assessmentId, "incomplete", null, null,
                     List.of(), List.of(), prog, List.of(), List.of(),
                     false, "尚未测完：还有 " + remainingActive
-                    + " 个考察点未收敛，请继续答题（已答 " + answeredQ + "/" + MAX_QUESTIONS + " 题）");
+                    + " 个考察点未收敛，请继续答题（已答 " + answeredQ + "/" + limit(a) + " 题）");
         }
 
         // 权重快照（任务发布时设定；缺省 1.0）
@@ -787,7 +845,7 @@ public class EngineService {
             double w = weightMap.getOrDefault(s.getAssessmentPoint(), 1.0);
             boolean tested = s.getAnswerCount() != null && s.getAnswerCount() > 0;
             double pointScore = tested ? 100.0 * s.getTheta() : 0.0;
-            boolean lit = tested && pointScore >= 60.0;
+            boolean lit = tested && w > 0 && s.getTheta() >= ProfileMath.skillThreshold(w);
             points.add(new ReportPoint(s.getAssessmentPoint(), s.getDimension(),
                     s.getTheta(), s.getConfidence(), s.getStatus(),
                     s.getQuestionCount(), w, lit));
@@ -796,12 +854,12 @@ public class EngineService {
                 wSum += w;
                 dimThetas.computeIfAbsent(s.getDimension(), k -> new ArrayList<>()).add(s.getTheta());
             }
-            if (tested && pointScore < 60.0) weakPoints.add(s.getAssessmentPoint());
+            if (tested && !lit) weakPoints.add(s.getAssessmentPoint());
             if (lit) strongPoints.add(s.getAssessmentPoint());
         }
         Double totalScore = wSum > 0 ? clamp(100.0 * thetaSum / wSum, 0.0, 100.0) : null;
 
-        // 六维分：固定六维都输出。已测维度=维度内已测点 θ 平均×100；未测维度给 0 占位，雷达图不空。
+        // 六维分：固定六维都输出。已测维度=维度内已测点 θ 平均×100；未测维度给 null 占位（前端显示“—”），雷达图不空。
         List<ReportDimension> dims = new ArrayList<>();
         for (String dimName : DIMENSION_ORDER) {
             List<Double> dimThetaList = dimThetas.get(dimName);
@@ -809,7 +867,7 @@ public class EngineService {
                     .filter(s -> dimName.equals(s.getDimension()) && s.getAnswerCount() != null && s.getAnswerCount() > 0)
                     .mapToInt(AssessmentPointState::getQuestionCount).sum();
             if (dimThetaList == null || dimThetaList.isEmpty()) {
-                dims.add(new ReportDimension(dimName, 0.0, 0, false));
+                dims.add(new ReportDimension(dimName, null, 0, false));
             } else {
                 double avgTheta = dimThetaList.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
                 dims.add(new ReportDimension(dimName, clamp(100.0 * avgTheta, 0.0, 100.0), qc, true));
@@ -838,18 +896,23 @@ public class EngineService {
                 ps.setAssessmentId(assessmentId); ps.setClassId(a.getClassId());
                 ps.setStudentUserId(a.getStudentUserId());
                 ps.setDimension(p.dimension()); ps.setAssessmentPoint(p.name());
-                ps.setScore(100.0 * p.theta()); ps.setQuestionCount(p.questionCount());
+                AssessmentPointState source = states.stream().filter(x -> x.getAssessmentPoint().equals(p.name())).findFirst().orElse(null);
+                boolean valid = source != null && source.getAnswerCount() != null && source.getAnswerCount() > 0;
+                ps.setScore(valid ? 100.0 * p.theta() : null); ps.setQuestionCount(valid ? p.questionCount() : 0);
                 pointScores.save(ps);
             }
             updateProfiles(a, states);
         }
 
-        // 标记测评完成
-        a.setStatus("completed");
+        // 标记测评完成（带评分失败也算完成，分数只按评分成功的题目算）
+        boolean scoringFailed = aqList.stream()
+                .anyMatch(q -> answers.findByAssessmentQuestionId(q.getId())
+                        .map(x -> "scoring_failed".equals(x.getResultStatus())).orElse(false));
+        a.setStatus(scoringFailed ? "completed_with_scoring_failure" : "completed");
         if (a.getCompletedAt() == null) a.setCompletedAt(java.time.Instant.now());
         a.setTotalScore(totalScore);
         a.setAverageScore(totalScore);
-        a.setAbilityLevel(totalScore == null ? null : abilityLevel(totalScore));
+        a.setAbilityLevel(totalScore == null ? null : levelScale.of(totalScore).code());
         assessments.save(a);
 
         log(assessmentId, a.getStudentUserId(), a.getClassId(), "finish", null,
@@ -859,10 +922,11 @@ public class EngineService {
                 dims, points, records, weakPoints, strongPoints, true, null);
     }
 
-    /** 画像增量更新：先衰减历史，再累加本场。 */
+    /** 画像增量更新：先衰减历史（30天半衰期），再累加本场；无效观测（θ/置信度/作答数不达标）不入账。 */
     private void updateProfiles(Assessment a, List<AssessmentPointState> states) {
         LocalDate today = LocalDate.now();
         for (AssessmentPointState s : states) {
+            if (!ProfileMath.valid(s.getTheta(), s.getConfidence(), s.getAnswerCount())) continue;
             StudentPointProfile p = profiles.findByKey(a.getClassId(), a.getStudentUserId(), s.getAssessmentPoint())
                     .orElseGet(() -> {
                         StudentPointProfile np = new StudentPointProfile();
@@ -876,7 +940,7 @@ public class EngineService {
             // 衰减旧数据（30天半衰期）
             if (p.getLastUpdatedAt() != null) {
                 long days = java.time.temporal.ChronoUnit.DAYS.between(p.getLastUpdatedAt(), today);
-                double decay = Math.pow(0.5, days / 30.0);
+                double decay = ProfileMath.decay(days);
                 p.setProfileSum(p.getProfileSum() * decay);
                 p.setProfileWeight(p.getProfileWeight() * decay);
             }
@@ -894,14 +958,11 @@ public class EngineService {
         // 已完成时从数据库读聚合数据（简化：直接返回已有分数）
         return new ReportData(a.getId(), a.getStatus(), a.getTotalScore(), a.getAbilityLevel(),
                 List.of(), List.of(), List.of(), List.of(), List.of(),
-                "completed".equals(a.getStatus()), null);
+                AssessmentRepository.COMPLETED_STATUSES.contains(a.getStatus()), null);
     }
 
     private String abilityLevel(double score) {
-        if (score >= 80) return "L4";
-        if (score >= 60) return "L3";
-        if (score >= 40) return "L2";
-        return "L1";
+        return levelScale.of(score).code();
     }
 
     // ==================== 6. report-text：回存报告文字 ====================

@@ -11,6 +11,7 @@ import com.huiqiyikang.assessment.entity.AssessmentQuestion;
 import com.huiqiyikang.assessment.mapper.AssessmentDimensionScoreRepository;
 import com.huiqiyikang.assessment.mapper.AssessmentPointScoreRepository;
 import com.huiqiyikang.assessment.mapper.AssessmentQuestionRepository;
+import com.huiqiyikang.assessment.mapper.AssessmentRepository;
 import org.springframework.stereotype.Service;
 
 import java.io.OutputStream;
@@ -32,12 +33,14 @@ public class AssessmentAgentService {
     private final AssessmentQuestionRepository assessmentQuestions;
     private final AssessmentDimensionScoreRepository dimensionScores;
     private final AssessmentPointScoreRepository pointScores;
+    private final ReportSnapshotService snapshots;
     private final ObjectMapper mapper;
 
     public AssessmentAgentService(AssessmentService assessments, EngineService engine, LlmClient llm,
                                   AssessmentQuestionRepository assessmentQuestions,
                                   AssessmentDimensionScoreRepository dimensionScores,
                                   AssessmentPointScoreRepository pointScores,
+                                  ReportSnapshotService snapshots,
                                   ObjectMapper mapper) {
         this.assessments = assessments;
         this.engine = engine;
@@ -45,6 +48,7 @@ public class AssessmentAgentService {
         this.assessmentQuestions = assessmentQuestions;
         this.dimensionScores = dimensionScores;
         this.pointScores = pointScores;
+        this.snapshots = snapshots;
         this.mapper = mapper;
     }
 
@@ -105,6 +109,20 @@ public class AssessmentAgentService {
 
     public Map<String, Object> result(Long assessmentId, Long userId) {
         Assessment assessment = owned(assessmentId, userId);
+        // 已完成：返回不可变报告快照（10.8.3 语义，前端 ReportSnapshotDetail 为快照渲染器），
+        // 附 assessment 视图兜底旧前端结果页。
+        if (AssessmentRepository.COMPLETED_STATUSES.contains(assessment.getStatus())) {
+            Map<String, Object> snapshot = snapshots.freeze(assessmentId);
+            snapshot.put("assessment", assessmentView(assessment));
+            List<AssessmentQuestion> qs = assessments.findByAssessmentIdOrderBySequenceNo(assessmentId);
+            List<Long> qIds = qs.stream().map(AssessmentQuestion::getId).toList();
+            snapshot.put("questions", qs.stream().map(this::snapshotView).toList());
+            snapshot.put("answers", assessments.findByAssessmentQuestionIdIn(qIds).stream()
+                    .map(this::answerView).toList());
+            snapshot.put("hasScoringFailure", assessments.findByAssessmentQuestionIdIn(qIds).stream()
+                    .anyMatch(a -> "scoring_failed".equals(a.getResultStatus())));
+            return snapshot;
+        }
         EngineService.ReportData freshReport = null;
         if ("completed".equals(assessment.getStatus())) {
             freshReport = engine.reportData(assessmentId);
@@ -591,6 +609,13 @@ public class AssessmentAgentService {
             }
         } catch (Exception ignored) {
             // Scoring and deterministic report data are already saved. Text report can be retried later.
+        }
+        // 报告快照（10.8.3）：不可变前后画像/技能树/AI 建议，前端报告快照页读取。
+        // 失败不阻断主流程：freeze 幂等（report_snapshot_json 非空即复用）。
+        try {
+            if (reportData.finished()) snapshots.freeze(assessmentId);
+        } catch (Exception ignored) {
+            // Snapshot can be regenerated lazily by /reports/{id}/snapshot.
         }
     }
 
